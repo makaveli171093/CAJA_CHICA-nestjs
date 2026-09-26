@@ -1,82 +1,104 @@
 # REPORTE DE AVANCE - FASE 1
-## CAJA CHICA MULTIUNIDAD - CAJA PETROLERA DE SALUD (CPS)
+## SISTEMA INSTITUCIONAL DE CAJA CHICA MULTIUNIDAD — CAJA PETROLERA DE SALUD (CPS)
 
-**Fecha:** 25 de septiembre de 2026  
-**Estado de la Fase 1:** COMPLETADA Y VERIFICADA  
-**Directorio de Trabajo:** `D:\DESARROLLO\PRODUCCION JARED\CAJA CHICA`
-
----
-
-### 1. COMPONENTES REALMENTE IMPLEMENTADOS
-
-#### Backend (`/backend`)
-1. **Infraestructura Base:**
-   - Framework: **NestJS 10.4.x** sobre Node.js v24.19.0.
-   - ORM y Modelado: **Prisma 5.22.x** con PostgreSQL (`schema.prisma`).
-   - Script de migración versionada inicial: `prisma/migrations/0_init/migration.sql`.
-   - Documentación OpenAPI/Swagger activa en `/api/docs` (protegida fuera de desarrollo).
-   - Global ValidationPipe (`whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`).
-   - Rate limiting con `@nestjs/throttler` para mitigación de ataques de fuerza bruta.
-2. **Seguridad y Control de Acceso:**
-   - Autenticación con contraseñas seguras mediante **bcrypt** (salt rounds 10).
-   - Sesión institucional segura emitida en cookie `caja_session` con atributos `HttpOnly`, `SameSite=Lax`, y protección CSRF.
-   - Guardián de roles (`RolesGuard`) y guardián de aislamiento multiunidad (`UnitAccessGuard`).
-   - Registro de auditoría sanitizado que elimina automáticamente tokens, contraseñas o hashes de la base de datos.
-3. **Módulos Funcionales Implementados:**
-   - **Autenticación:** `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
-   - **Unidades Institucionales:** `/api/unidades` (CRUD, soft-delete, aislamiento por rol).
-   - **Usuarios y Unidades:** `/api/usuarios` (CRUD, asignación de múltiples unidades, reseteo seguro).
-   - **Responsables de Caja:** `/api/responsables` (registro de datos de identidad, memorando, fecha y unidad).
-   - **Clasificador de Partidas:** `/api/partidas` (código como texto, descripción oficial, búsqueda).
-   - **Presupuestos por Partida:** `/api/presupuestos` (asignación anual con control atómico de modificaciones y tabla `presupuestos_historial` que registra monto anterior, nuevo y motivo obligatorio).
-   - **Apertura de Caja:** `/api/apertura` (creación de borrador, edición restringida y confirmación atómica transaccional con generación de movimiento único de efectivo e inmutabilidad).
-   - **Dashboard:** `/api/dashboard` (cálculos en tiempo real con `Decimal.js`: saldo efectivo disponible, fondo autorizado, límite del 10 % por comprobante y desglose presupuestario).
-4. **Herramientas de Consola (CLI):**
-   - Script interactivo para creación del primer administrador: `npm run admin:create` (en `backend/`).
-   - Script de carga de datos ficticios de demostración: `src/scripts/seed-demo.ts`.
-
-#### Frontend (`/frontend`)
-1. **Stack y Diseño:**
-   - Vite 8.x + React 18 + TypeScript + Mantine UI 7.
-   - Paleta institucional CPS con color primario oficial `#007B6D`.
-   - Tipografía moderna *Inter* y componentes adaptables a pantallas de escritorio y portátiles.
-   - Identificación textual institucional sobria de la Caja Petrolera de Salud (sin logos inventados).
-2. **Módulos y Pantallas Operativas:**
-   - **Autenticación:** Pantalla de inicio de sesión con alertas de error, validación y sesión en memoria rehidratada por cookie segura.
-   - **Navegación:** Barra superior con selector de Unidad Institucional activa y Gestión Fiscal (2026/2025), más menú lateral adaptativo según rol.
-   - **Dashboard (Inicio):** Tarjetas con saldos reales, cálculo exacto del 10 % del fondo autorizado, responsable y tabla de partidas presupuestadas.
-   - **Apertura de Fondo:** Registro en borrador y modal de confirmación sensible con advertencia de inmutabilidad y prevención de doble clic.
-   - **Presupuestos:** Visualización del gasto presupuestado, modal de asignación y modal de ajuste con motivo e historial emergente.
-   - **Responsables:** Administración de encargados con número de memorando y estado de vigencia.
-   - **Catálogos (Admin):** Módulos completos para Unidades, Partidas, Usuarios y Bitácora de Auditoría.
+**Directorio de Trabajo:** `D:\DESARROLLO\PRODUCCION JARED\CAJA CHICA`  
+**Base de Datos Operativa:** `caja_chica_cps` (PostgreSQL 18 en `localhost:5432`)  
+**Base de Datos de Pruebas:** `caja_chica_cps_test` (Aislada e independiente)  
+**Fecha de Actualización:** 25 de septiembre de 2026  
 
 ---
 
-### 2. VERIFICACIONES Y RESULTADOS DE PRUEBAS
+### 1. ESTADO DE IMPLEMENTACIÓN Y VERIFICACIÓN
 
-#### A. Pruebas Unitarias Automatizadas (Jest)
-Ejecutadas con éxito en el backend (`npm test`):
-- **5 Test Suites Pasadas (19 pruebas en total, 0 fallidas):**
-  1. `is-decimal-string.validator.spec.ts`: Validación estricta de importes en formato `NUMERIC(14,2)` como cadenas decimales (rechazo de textos, números negativos, más de 2 decimales y comas).
-  2. `decimal-calculation.spec.ts`: Cálculo exacto del límite del 10 % del fondo autorizado y sumas monetarias con `Decimal.js` sin pérdida de precisión de coma flotante.
-  3. `unit-access.guard.spec.ts`: Aislamiento estricto entre unidades. Bloqueo de encargados al intentar consultar o modificar unidades no asignadas (incluso mediante ID directo en rutas o queries).
-  4. `auth.service.spec.ts`: Validación de contraseñas con hash seguro, rechazo de contraseñas erróneas, rechazo de usuarios desactivados y bloqueo temporal tras 5 intentos fallidos consecutivos.
-  5. `apertura.service.spec.ts`: Transacción atómica de confirmación, creación de una sola entrada de efectivo, rechazo de doble confirmación, control de concurrencia y rechazo de modificaciones directas a fondos confirmados.
-
-#### B. Pruebas de Compilación
-- **Backend:** `nest build` finalizado exitosamente (código de salida 0). Directorio `dist/` generado.
-- **Frontend:** `vite build` finalizado exitosamente (código de salida 0). Directorio `dist/` generado.
+#### A. IMPLEMENTADO
+- **Monolito Modular Completo:**
+  - `backend/`: NestJS 10.4.x, TypeScript, adaptador Express, Prisma ORM 5.22.x, Swagger/OpenAPI, Throttler rate limiting, ValidationPipe estricto.
+  - `frontend/`: React 18, Vite 8.x, TypeScript, Mantine UI 7, paleta institucional CPS `#007B6D`, tipografía Inter.
+  - `docs/`: [`ALCANCE_Y_REGLAS.md`](./ALCANCE_Y_REGLAS.md) con correcciones normativas formales (REP-MAT externo, Formulario 001 como vale provisional, sin retenciones, rendición Form. 5308 y cómputo de 48 horas pendiente).
+- **Seguridad y Control de Sesión:**
+  - Contraseñas con hash seguro `bcrypt` (10 salt rounds).
+  - Emisión de cookies `HttpOnly` (`caja_session`) con `SameSite=Lax` y validación de cabecera `X-Requested-With` para mitigación CSRF.
+  - **Cero almacenamiento en `localStorage` o `sessionStorage`** de credenciales ni tokens.
+  - Generación automática de `JWT_SECRET` criptográfico aleatorio en `backend/.env` (archivo excluido formalmente en `.gitignore`).
+  - Bloqueo temporal automático de cuentas tras 5 intentos fallidos consecutivos de login.
+  - Guardián `UnitAccessGuard` mejorado con resolución en base de datos de `:id` de recursos directos (`unidades`, `responsables`, `presupuestos`, `apertura`).
+- **Catálogos y Apertura:**
+  - Unidades con código único y desactivación lógica (*soft-delete*).
+  - **Registro Unificado de Encargado y Responsable de Caja Chica:**
+    - Identidad personal única por funcionario (`nombres`, `apellidos`, `carnetIdentidad`, `cargo`, `email`) vinculada a su cuenta de acceso institucional (`userId` en `responsables`).
+    - Designaciones formales individualizadas por cada unidad asignada (`documentoDesignacion`, `fechaDesignacion`), soportando múltiples unidades por encargado sin duplicidad de perfiles.
+    - Sincronización transaccional atómica (`$transaction`): cuenta de usuario, perfil personal, permisos operativos (`usuario_unidades`) y designaciones (`responsables`).
+    - Conservación estricta de historial: la reasignación de unidades o desactivación de un encargado preserva sus designaciones previas y referencias a aperturas y movimientos pasados (desactivación lógica `activo = false`).
+    - Formulario unificado integral en `/usuarios` para crear y editar, permitiendo completar perfiles de usuarios preexistentes (caso `alinares`).
+    - Pantalla de consulta `/responsables` sincronizada con enlace al flujo unificado.
+  - Clasificador de partidas presupuestarias con código como texto (`String`, ej. `"31110"`).
+  - **Habilitación de Partidas por Unidad (`unidad_partidas`):**
+    - Relación `UnidadPartida` con unicidad del par `(unidadId, partidaId)` y estado `activo`.
+    - No habilitación por defecto: cada centro o unidad institucional cuenta exclusivamente con las partidas autorizadas por el Administrador.
+    - Exclusividad de gestión para rol `ADMINISTRADOR`, con trazabilidad en bitácora de auditoría.
+    - Separación estricta entre habilitación institucional y asignación presupuestaria por gestión fiscal.
+    - Restricción para encargados: consulta y selección limitadas a las partidas habilitadas de sus unidades autorizadas.
+    - Interfaz en administración de Unidades: modal "Partidas Habilitadas" con switches de activación y detección de presupuestos previos pendientes de regularización.
+  - Presupuestos por partida con historial obligatorio de motivo (`presupuestos_historial`) y validación previa de habilitación.
+  - Apertura con confirmación atómica en `$transaction`, control de concurrencia y generación de **una sola entrada de efectivo**.
 
 ---
 
-### 3. PRÓXIMO PASO (FASE 2)
+#### B. VERIFICADO CON BASE DE DATOS REAL (PostgreSQL 18)
+- **Migraciones Incrementales Aplicadas Exitosamente:**
+  - `0_init`: Estructura inicial del sistema.
+  - `1_unidad_partidas`: Tabla `unidad_partidas`, índice único y claves foráneas en cascada.
+  - `2_usuario_responsable_unificado`: Columnas `nombres`, `apellidos`, `carnetIdentidad`, `cargo` en `usuarios`, y columna `userId` con clave foránea `ON DELETE SET NULL` en `responsables`.
+  - Todas las migraciones aplicadas en la base operativa `caja_chica_cps` y en la base de pruebas `caja_chica_cps_test` mediante `prisma migrate deploy`, sin resets ni pérdida de historial.
+- **Pruebas de Integración con PostgreSQL (`backend/src/test/postgres-integration.spec.ts`):**
+  - Ejecutadas en la base de pruebas `caja_chica_cps_test`.
+  - **Aislamiento Multiunidad:** Encargado asignado a Unidad A no puede consultar ni operar sobre recursos de Unidad B (resolución real por ID rechazada con 403 Forbidden).
+  - **Aislamiento y Restricción de Partidas Habilitadas:**
+    - Verificación con dos unidades (Unidad A y Unidad B) y una partida habilitada únicamente en A.
+    - Intento de asignar presupuesto a la partida en Unidad B (incluso enviando su ID directamente a la API): **Rechazado con 400 Bad Request**.
+    - Base de datos comprobada: 0 registros de presupuesto creados en Unidad B.
+    - Asignación de presupuesto en Unidad A: **Completada exitosamente (201 Created)**.
+    - Desactivación de habilitación en Unidad A: **Presupuesto e historial conservados íntegramente**.
+    - Consulta de encargado de Unidad B: **Partida no habilitada excluida de los resultados**.
+    - Intento de encargado de B de consultar partidas de Unidad A: **Rechazado con 403 Forbidden**.
+  - **Rechazo de DTO inválidos:** Class-validator rechaza importes con más de 2 decimales, montos negativos, textos no numéricos y fechas mal formadas.
+  - **Concurrencia Real de Confirmación:** Ejecución simultánea de dos confirmaciones paralelas con `Promise.allSettled` sobre PostgreSQL: exactamente **una confirmación tuvo éxito**, la concurrente fue **rechazada con 409 ConflictException**, y se verificó en base de datos la existencia de **exactamente un movimiento de efectivo** y estado final `ABIERTA`.
+  - **Rollback y Atomicidad Transaccional:** Ante un error forzado a mitad de transacción, PostgreSQL revierte todo cambio: el estado permanece en `BORRADOR` y la tabla `movimientos_efectivo` queda con 0 registros huérfanos.
+  - **Precisión Decimal y Tipos SQL:** Comprobación de que `NUMERIC(14,2)` conserva montos exactos y que el 10 % del fondo autorizado no pierde precisión de coma flotante.
+  - **Independencia Presupuestaria Multiunidad:** Verificación de que una misma partida admite montos presupuestarios distintos en dos unidades distintas para la misma gestión (`unidadId + partidaId + gestion`), que modificar el monto en una unidad no altera la otra, y que la asignación presupuestaria no genera movimientos de efectivo de caja.
+  - **Registro Unificado de Encargado y Responsable:** Creación atómica de usuario con designación por unidad, completado de usuario existente sin duplicidad, protección de acceso a unidades no asignadas, visibilidad en apertura de caja chica, reversión total ante error y conservación histórica de designaciones previas.
+  - Total de pruebas Jest automatizadas: **27 pruebas pasadas, 6 suites completadas, 0 fallos**.
 
-Una vez formalizada la Fase 1:
-1. **Circuito de Anticipos y Solicitudes:**
-   - Registro de solicitud asociada a formulario REP-MAT autorizado físicamente.
-   - Verificación previa de efectivo disponible y saldo presupuestario en la partida seleccionada.
-   - Entrega simultánea de dinero y emisión del Formulario 001.
-   - Mantenimiento del saldo pendiente de rendición (plazo de 48 horas).
-2. **Descargos y Facturas:**
-   - Registro de facturas comerciales e imputación formal al gasto con formulario 002.
-   - Registro de devoluciones de sobrantes sin duplicar deducciones de efectivo.
+- **Cuentas de Verificación en Base Operativa (`caja_chica_cps`):**
+  - Durante las verificaciones iniciales de acceso y ciclo de sesión, se crearon en la base operativa dos cuentas: `admin_verif` (ADMINISTRADOR) y `test_desactivado` (ENCARGADO).
+  - **Estado actual comprobado:** Ambas cuentas han sido **desactivadas** (`activo: false`), conservando íntegros sus registros de auditoría y fechas. Ninguna cuenta de prueba permanece activa en la base operativa.
+- **Flujo de Acceso HTTP E2E y Corrección de Selección de Unidad:**
+  - Login exitoso devolviendo cookie `HttpOnly` y `SameSite=Lax`.
+  - Carga institucional para rol `ADMINISTRADOR`: entrega todas las unidades institucionales activas (rol global); para `ENCARGADO`: entrega sus unidades autorizadas activas.
+  - Selector de unidad visible y reactivo en el header, con auto-selección si existe una sola unidad disponible y limpieza inmediata de estados anteriores al cambiar.
+  - Persistencia de sesión al recargar mediante rehidratación `/api/auth/me`.
+  - Revocación inmediata en tiempo real de sesión para usuario desactivado (401 Unauthorized automático en el siguiente request con la misma sesión).
+  - Cierre de sesión eliminando la cookie de sesión del navegador.
+  - CORS configurado y verificado permitiendo `http://localhost:5173` con credenciales.
+  - Frontend compilado limpiamente con `tsc -b && vite build` (0 errores).
+
+---
+
+#### C. ESTADO DE VERIFICACIÓN EN NAVEGADOR Y REVISIÓN VISUAL
+- **Verificación de Protocolo HTTP / Servicios Activos:**
+  - Servidor Backend NestJS: Operativo y respondiendo HTTP 200 en `http://localhost:3000/api` (puerto 3000).
+  - Documentación Swagger OpenAPI: Operativa y respondiendo HTTP 200 en `http://localhost:3000/api/docs`.
+  - Servidor Frontend Vite: Operativo y respondiendo HTTP 200 en `http://localhost:5173` (puerto 5173).
+- **Distinción entre Pruebas HTTP y Revisión Visual:**
+  - **Pruebas HTTP automatizadas:** Completadas (comportamiento de API, cookies HttpOnly, CORS y cabeceras CSRF validados).
+  - **Revisión visual de interfaz:** Pendiente de revisión personal por parte del usuario directamente en su navegador local (`http://localhost:5173`). No se utilizó emulación headless automatizada (Playwright descartado por limitación externa de descarga de binarios).
+
+---
+
+#### D. PENDIENTE (FASE 2)
+- Formulario 001 (vale provisional de entrega de dinero) tras entrega física autorizada.
+- Circuito de anticipos y registro de comprobantes con referencia al formulario REP-MAT externo.
+- Registro de facturas y formulario de descargo 002 (sin módulo de retenciones, según precisión confirmada).
+- Devolución de sobrantes y liquidación de anticipos.
+- Definición de Auditoría Interna / DAF CPS sobre el cómputo de las 48 horas de plazo de rendición (días hábiles vs. calendario corrido).
+- Generación de reportes PDF con Puppeteer y Formulario 5308 (modalidad completa y solo datos sobre papel preimpreso).

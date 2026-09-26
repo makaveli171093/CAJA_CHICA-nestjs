@@ -44,14 +44,21 @@ export class AperturaService {
       );
     }
 
-    // Verificar que el responsable exista y pertenezca a la unidad
+    // Verificar que el responsable exista, pertenezca a la unidad y tenga cuenta activa si está vinculada
     const responsable = await this.prisma.responsable.findUnique({
       where: { id: createDto.responsableId },
+      include: { user: true },
     });
 
     if (!responsable || !responsable.activo || responsable.unidadId !== createDto.unidadId) {
       throw new BadRequestException(
         'El responsable seleccionado no pertenece a la unidad institucional o se encuentra inactivo.',
+      );
+    }
+
+    if (responsable.user && !responsable.user.activo) {
+      throw new BadRequestException(
+        'La cuenta de usuario asociada a este responsable se encuentra desactivada.',
       );
     }
 
@@ -184,9 +191,13 @@ export class AperturaService {
 
     const responsable = await this.prisma.responsable.findUnique({
       where: { id: updateDto.responsableId },
+      include: { user: true },
     });
     if (!responsable || !responsable.activo || responsable.unidadId !== apertura.unidadId) {
       throw new BadRequestException('El responsable no pertenece a la unidad o está inactivo.');
+    }
+    if (responsable.user && !responsable.user.activo) {
+      throw new BadRequestException('La cuenta de usuario asociada a este responsable se encuentra desactivada.');
     }
 
     const updated = await this.prisma.cajaApertura.update({

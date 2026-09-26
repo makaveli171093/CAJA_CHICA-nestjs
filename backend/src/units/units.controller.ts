@@ -12,6 +12,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { UnitsService } from './units.service';
 import { CreateUnitDto, UpdateUnitDto } from './dto/create-unit.dto';
+import { TogglePartidaUnidadDto } from './dto/toggle-partida.dto';
 import { JwtAuthGuard, RolesGuard } from '../common/guards';
 import { Roles, CurrentUser, AuthenticatedUser } from '../common/decorators';
 import { RolUsuario } from '@prisma/client';
@@ -81,5 +82,34 @@ export class UnitsController {
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
     return this.unitsService.deactivate(id, currentUser);
+  }
+
+  @Get(':id/partidas-habilitadas')
+  @ApiOperation({ summary: 'Listar partidas presupuestarias habilitadas para una unidad' })
+  getPartidasHabilitadas(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ) {
+    return this.unitsService.getPartidasHabilitadas(id, currentUser);
+  }
+
+  @Post(':id/partidas-habilitadas')
+  @Roles(RolUsuario.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Habilitar o inhabilitar partida presupuestaria en una unidad (Solo Administrador)' })
+  togglePartidaHabilitada(
+    @Param('id') id: string,
+    @Body() dto: TogglePartidaUnidadDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ) {
+    return this.unitsService.togglePartidaHabilitada(id, dto, currentUser);
+  }
+
+  @Get(':id/partidas-habilitadas/pendientes-presupuesto')
+  @ApiOperation({ summary: 'Identificar partidas con presupuesto registrado que no se encuentran habilitadas' })
+  getPendientesPresupuesto(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ) {
+    return this.unitsService.getPendientesPresupuesto(id, currentUser);
   }
 }

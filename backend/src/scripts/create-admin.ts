@@ -1,56 +1,53 @@
+import * as path from 'path';
+import * as dotenv from 'dotenv';
 import { PrismaClient, RolUsuario } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import * as readline from 'readline';
 
-const prisma = new PrismaClient();
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const prompts = require('prompts');
 
-function prompt(query: string, hide = false): Promise<string> {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
+// Cargar explícitamente backend/.env usando ruta absoluta resuelta desde este script
+const envPath = path.resolve(__dirname, '../../.env');
+dotenv.config({ path: envPath });
 
-    if (hide) {
-      // Ocultar caracteres o imprimir indicador para contraseñas
-      process.stdout.write(query);
-      let input = '';
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      process.stdin.on('data', function onData(char) {
-        const c = char.toString('utf8');
-        if (c === '\n' || c === '\r' || c === '\u0004') {
-          process.stdin.setRawMode(false);
-          process.stdin.removeListener('data', onData);
-          rl.close();
-          console.log();
-          resolve(input);
-        } else if (c === '\u0003') {
-          // Ctrl+C
-          process.exit();
-        } else if (c === '\b' || c === '\x7f') {
-          if (input.length > 0) {
-            input = input.slice(0, -1);
-            process.stdout.write('\b \b');
-          }
-        } else {
-          input += c;
-          process.stdout.write('*');
-        }
-      });
-    } else {
-      rl.question(query, (answer) => {
-        rl.close();
-        resolve(answer.trim());
-      });
-    }
-  });
+// Validar que DATABASE_URL exista antes de inicializar Prisma
+if (!process.env.DATABASE_URL) {
+  console.error('\n================================================================');
+  console.error(' ERROR DE CONFIGURACIÓN');
+  console.error('================================================================');
+  console.error('No se encontró la variable DATABASE_URL en backend/.env.');
+  console.error('Verifique que el archivo exista y contenga los parámetros requeridos.\n');
+  process.exit(1);
 }
+
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+});
 
 async function main() {
   console.log('================================================================');
   console.log(' CAJA PETROLERA DE SALUD - CREACIÓN DE ADMINISTRADOR INICIAL    ');
   console.log('================================================================');
+
+  // Validar conexión con PostgreSQL antes de solicitar datos al usuario
+  try {
+    process.stdout.write('Verificando conexión con PostgreSQL... ');
+    await prisma.$connect();
+    await prisma.$queryRaw`SELECT 1`;
+    console.log('[OK]\n');
+  } catch {
+    console.log('[FALLO]');
+    console.error('\n================================================================');
+    console.error(' ERROR DE CONEXIÓN A LA BASE DE DATOS');
+    console.error('================================================================');
+    console.error('No se pudo conectar con el servidor PostgreSQL.');
+    console.error('Verifique que el servicio esté activo y los parámetros locales sean válidos.\n');
+    process.exit(1);
+  }
 
   try {
     const args = process.argv.slice(2);
@@ -59,7 +56,6 @@ async function main() {
     let email = '';
     let password = '';
 
-    // Soporte para argumentos por línea de comandos si se invocan
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '--username' && args[i + 1]) username = args[i + 1];
       if (args[i] === '--name' && args[i + 1]) nombreCompleto = args[i + 1];
@@ -67,32 +63,67 @@ async function main() {
       if (args[i] === '--password' && args[i + 1]) password = args[i + 1];
     }
 
+    const questions: any[] = [];
+
     if (!username) {
-      username = await prompt('Ingrese el nombre de usuario (ej. admin): ');
-    }
-    if (!username) {
-      console.error('Error: El nombre de usuario no puede estar vacío.');
-      process.exit(1);
+      questions.push({
+        type: 'text',
+        name: 'username',
+        message: 'Ingrese el nombre de usuario (ej. admin):',
+        validate: (val: string) => (val && val.trim().length > 0 ? true : 'El nombre de usuario no puede estar vacío.'),
+      });
     }
 
     if (!nombreCompleto) {
-      nombreCompleto = await prompt('Ingrese el nombre completo del administrador: ');
-    }
-    if (!nombreCompleto) {
-      console.error('Error: El nombre completo no puede estar vacío.');
-      process.exit(1);
+      questions.push({
+        type: 'text',
+        name: 'nombreCompleto',
+        message: 'Ingrese el nombre completo del administrador:',
+        validate: (val: string) => (val && val.trim().length > 0 ? true : 'El nombre completo no puede estar vacío.'),
+      });
     }
 
     if (!email) {
-      email = await prompt('Ingrese correo electrónico institucional (opcional): ');
+      questions.push({
+        type: 'text',
+        name: 'email',
+        message: 'Ingrese correo electrónico institucional (opcional):',
+      });
     }
 
     if (!password) {
-      password = await prompt('Ingrese la contraseña para el nuevo administrador: ', true);
+      questions.push({
+        type: 'password',
+        name: 'password',
+        message: 'Ingrese la contraseña para el administrador:',
+        validate: (val: string) => (val && val.length >= 6 ? true : 'La contraseña debe tener al menos 6 caracteres.'),
+      });
+
+      questions.push({
+        type: 'password',
+        name: 'confirmPassword',
+        message: 'Confirme la contraseña:',
+        validate: (val: string, answers: any) =>
+          val === answers.password ? true : 'Las contraseñas no coinciden.',
+      });
     }
-    if (!password || password.length < 6) {
-      console.error('Error: La contraseña debe tener al menos 6 caracteres.');
-      process.exit(1);
+
+    const answers = await prompts(questions, {
+      onCancel: () => {
+        console.log('\n\nOperación cancelada por el usuario.\n');
+        process.exit(0);
+      },
+    });
+
+    // Consolidar valores ingresados
+    username = username || (answers.username ? answers.username.trim() : '');
+    nombreCompleto = nombreCompleto || (answers.nombreCompleto ? answers.nombreCompleto.trim() : '');
+    email = email || (answers.email ? answers.email.trim() : '');
+    password = password || answers.password;
+
+    if (!username || !nombreCompleto || !password) {
+      console.log('\nOperación incompleta. Cancelando sin realizar cambios.');
+      return;
     }
 
     const existing = await prisma.user.findUnique({
@@ -100,9 +131,23 @@ async function main() {
     });
 
     if (existing) {
-      console.log(`\nEl usuario "${username}" ya existe.`);
-      const confirm = await prompt('¿Desea restablecer su contraseña y elevar a ADMINISTRADOR? (s/n): ');
-      if (confirm.toLowerCase() === 's') {
+      console.log(`\nEl usuario "${username}" ya existe en la base de datos.`);
+      const confirmPrompt = await prompts(
+        {
+          type: 'confirm',
+          name: 'confirmed',
+          message: '¿Desea restablecer su contraseña y asegurar rol ADMINISTRADOR?',
+          initial: false,
+        },
+        {
+          onCancel: () => {
+            console.log('\nOperación cancelada por el usuario.\n');
+            process.exit(0);
+          },
+        },
+      );
+
+      if (confirmPrompt.confirmed) {
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
         await prisma.user.update({
@@ -112,11 +157,31 @@ async function main() {
             rol: RolUsuario.ADMINISTRADOR,
             activo: true,
             nombreCompleto: nombreCompleto || existing.nombreCompleto,
+            email: email || existing.email,
           },
         });
+
+        await prisma.auditoria.create({
+          data: {
+            actorUsername: 'CLI_SETUP',
+            accion: 'RESTABLECER_ADMIN',
+            entidad: 'User',
+            entidadId: existing.id,
+            detalleJson: JSON.stringify({
+              username: existing.username,
+              rol: RolUsuario.ADMINISTRADOR,
+              origen: 'create-admin script (prompts)',
+            }),
+          },
+        });
+
+        console.log(`\n================================================================`);
         console.log(`✓ Administrador "${username}" actualizado exitosamente.`);
+        console.log(`✓ Nueva contraseña cifrada con bcrypt (10 rondas de salt).`);
+        console.log(`✓ Registro de auditoría guardado.`);
+        console.log(`================================================================\n`);
       } else {
-        console.log('Operación cancelada.');
+        console.log('\nOperación cancelada. El usuario no fue modificado.');
       }
       return;
     }
@@ -135,7 +200,7 @@ async function main() {
       },
     });
 
-    // Registrar en auditoría
+    // Registrar en auditoría institucional
     await prisma.auditoria.create({
       data: {
         actorUsername: 'CLI_SETUP',
@@ -145,7 +210,7 @@ async function main() {
         detalleJson: JSON.stringify({
           username: created.username,
           rol: created.rol,
-          origen: 'create-admin script',
+          origen: 'create-admin script (prompts)',
         }),
       },
     });
@@ -153,10 +218,11 @@ async function main() {
     console.log('\n================================================================');
     console.log(`✓ Usuario Administrador creado satisfactoriamente: [${created.username}]`);
     console.log(`✓ Rol asignado: ADMINISTRADOR`);
-    console.log(`✓ Ninguna credencial o contraseña fue expuesta ni almacenada en texto plano.`);
+    console.log(`✓ Contraseña cifrada con bcrypt (10 rondas de salt).`);
+    console.log(`✓ Registro de auditoría guardado.`);
     console.log('================================================================\n');
   } catch (error) {
-    console.error('Error al crear el administrador:', error);
+    console.error('Error al procesar la operación:', error);
   } finally {
     await prisma.$disconnect();
   }

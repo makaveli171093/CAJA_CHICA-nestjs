@@ -8,8 +8,12 @@ import {
   MaxLength,
   MinLength,
   IsArray,
+  IsBoolean,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { RolUsuario } from '@prisma/client';
+import { DesignacionDto } from './designacion.dto';
 
 export class CreateUserDto {
   @ApiProperty({ description: 'Nombre de usuario único para acceso', example: 'jlinares' })
@@ -18,11 +22,35 @@ export class CreateUserDto {
   @MaxLength(50)
   username: string;
 
-  @ApiProperty({ description: 'Nombre completo del funcionario', example: 'Jared Linares' })
+  @ApiPropertyOptional({ description: 'Nombres del funcionario', example: 'Jared Angel' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'El nombre completo es obligatorio.' })
+  @MaxLength(100)
+  nombres?: string;
+
+  @ApiPropertyOptional({ description: 'Apellidos del funcionario', example: 'Linares Quispe' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  apellidos?: string;
+
+  @ApiPropertyOptional({ description: 'Nombre completo del funcionario (opcional si se proporcionan nombres y apellidos)', example: 'Jared Linares' })
+  @IsOptional()
+  @IsString()
   @MaxLength(150)
-  nombreCompleto: string;
+  nombreCompleto?: string;
+
+  @ApiPropertyOptional({ description: 'Carnet de identidad del funcionario', example: '6854125 LP' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  carnetIdentidad?: string;
+
+  @ApiPropertyOptional({ description: 'Cargo institucional', example: 'Encargado de Caja Chica' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  cargo?: string;
 
   @ApiPropertyOptional({ description: 'Correo electrónico de contacto', example: 'jlinares@cps.org.bo' })
   @IsOptional()
@@ -40,9 +68,22 @@ export class CreateUserDto {
   @IsEnum(RolUsuario, { message: 'El rol debe ser ADMINISTRADOR o ENCARGADO.' })
   rol: RolUsuario;
 
-  @ApiPropertyOptional({ description: 'IDs de unidades institucionales asignadas', type: [String] })
+  @ApiPropertyOptional({ description: 'Estado activo del usuario', default: true })
+  @IsOptional()
+  @IsBoolean()
+  activo?: boolean;
+
+  @ApiPropertyOptional({ description: 'IDs de unidades institucionales asignadas (legado)', type: [String] })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   unidades?: string[];
+
+  @ApiPropertyOptional({ description: 'Designaciones formales por unidad institucional', type: [DesignacionDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DesignacionDto)
+  designaciones?: DesignacionDto[];
 }
+

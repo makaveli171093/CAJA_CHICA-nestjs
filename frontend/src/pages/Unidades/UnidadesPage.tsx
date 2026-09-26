@@ -13,13 +13,23 @@ import {
   Loader,
   Box,
   Pagination,
+  Switch,
+  Alert,
+  Divider,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconPlus, IconSearch, IconBuilding, IconTrash } from '@tabler/icons-react';
+import {
+  IconPlus,
+  IconSearch,
+  IconTrash,
+  IconListCheck,
+  IconAlertCircle,
+  IconCheck,
+} from '@tabler/icons-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { Unit } from '../../types';
+import { Unit, PartidaHabilitada, PendientePresupuesto } from '../../types';
 
 export const UnidadesPage: React.FC = () => {
   const { user } = useAuth();
@@ -29,8 +39,19 @@ export const UnidadesPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Modal Crear Unidad
   const [opened, { open, close }] = useDisclosure(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Modal Partidas Habilitadas
+  const [partidasModalOpened, { open: openPartidasModal, close: closePartidasModal }] =
+    useDisclosure(false);
+  const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
+  const [partidasList, setPartidasList] = useState<PartidaHabilitada[]>([]);
+  const [pendientesList, setPendientesList] = useState<PendientePresupuesto[]>([]);
+  const [isLoadingPartidas, setIsLoadingPartidas] = useState(false);
+  const [partidaSearch, setPartidaSearch] = useState('');
+  const [togglingPartidaId, setTogglingPartidaId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     codigo: '',
@@ -103,6 +124,75 @@ export const UnidadesPage: React.FC = () => {
     }
   };
 
+  // Abrir gestión de partidas habilitadas
+  const handleOpenPartidas = async (unit: Unit) => {
+    setSelectedUnit(unit);
+    setPartidaSearch('');
+    openPartidasModal();
+    loadPartidasHabilitadas(unit.id);
+  };
+
+  const loadPartidasHabilitadas = async (unitId: string) => {
+    setIsLoadingPartidas(true);
+    try {
+      const [resHabilitadas, resPendientes] = await Promise.all([
+        api.get<PartidaHabilitada[]>(`/unidades/${unitId}/partidas-habilitadas`),
+        api.get<PendientePresupuesto[]>(`/unidades/${unitId}/partidas-habilitadas/pendientes-presupuesto`),
+      ]);
+      setPartidasList(resHabilitadas.data);
+      setPendientesList(resPendientes.data);
+    } catch (err: any) {
+      notifications.show({
+        title: 'Error al cargar partidas',
+        message: err.response?.data?.message || 'No se pudieron cargar las partidas habilitadas.',
+        color: 'red',
+      });
+    } finally {
+      setIsLoadingPartidas(false);
+    }
+  };
+
+  const handleTogglePartida = async (partidaId: string, currentStatus: boolean) => {
+    if (!selectedUnit) return;
+    setTogglingPartidaId(partidaId);
+    try {
+      await api.post(`/unidades/${selectedUnit.id}/partidas-habilitadas`, {
+        partidaId,
+        activo: !currentStatus,
+      });
+
+      notifications.show({
+        title: !currentStatus ? 'Partida Habilitada' : 'Partida Deshabilitada',
+        message: `La partida fue ${!currentStatus ? 'habilitada' : 'deshabilitada'} para ${selectedUnit.codigo}.`,
+        color: !currentStatus ? 'teal' : 'orange',
+      });
+
+      // Actualizar estado local
+      setPartidasList((prev) =>
+        prev.map((p) => (p.partidaId === partidaId ? { ...p, habilitado: !currentStatus } : p)),
+      );
+
+      // Si se habilitó, remover de pendientes
+      if (!currentStatus) {
+        setPendientesList((prev) => prev.filter((p) => p.partidaId !== partidaId));
+      }
+    } catch (err: any) {
+      notifications.show({
+        title: 'Error al cambiar asignación',
+        message: err.response?.data?.message || 'No se pudo actualizar la partida.',
+        color: 'red',
+      });
+    } finally {
+      setTogglingPartidaId(null);
+    }
+  };
+
+  const filteredPartidas = partidasList.filter(
+    (p) =>
+      p.codigo.toLowerCase().includes(partidaSearch.toLowerCase()) ||
+      p.descripcion.toLowerCase().includes(partidaSearch.toLowerCase()),
+  );
+
   const isAdmin = user?.rol === 'ADMINISTRADOR';
 
   return (
@@ -152,7 +242,7 @@ export const UnidadesPage: React.FC = () => {
                   <Table.Th>Nombre de la Unidad</Table.Th>
                   <Table.Th>Administración de Dependencia</Table.Th>
                   <Table.Th style={{ width: 100 }}>Estado</Table.Th>
-                  {isAdmin && <Table.Th style={{ width: 100, textAlign: 'center' }}>Acciones</Table.Th>}
+                  <Table.Th style={{ width: 220, textAlign: 'center' }}>Acciones</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -170,9 +260,18 @@ export const UnidadesPage: React.FC = () => {
                         {u.activo ? 'ACTIVO' : 'INACTIVO'}
                       </Badge>
                     </Table.Td>
-                    {isAdmin && (
-                      <Table.Td style={{ textAlign: 'center' }}>
-                        {u.activo && (
+                    <Table.Td style={{ textAlign: 'center' }}>
+                      <Group gap="xs" justify="center">
+                        <Button
+                          size="xs"
+                          variant="light"
+                          color="cpsTeal"
+                          leftSection={<IconListCheck size={14} />}
+                          onClick={() => handleOpenPartidas(u)}
+                        >
+                          Partidas habilitadas
+                        </Button>
+                        {isAdmin && u.activo && (
                           <Button
                             size="xs"
                             variant="subtle"
@@ -183,8 +282,8 @@ export const UnidadesPage: React.FC = () => {
                             Desactivar
                           </Button>
                         )}
-                      </Table.Td>
-                    )}
+                      </Group>
+                    </Table.Td>
                   </Table.Tr>
                 ))}
               </Table.Tbody>
@@ -238,6 +337,135 @@ export const UnidadesPage: React.FC = () => {
             </Group>
           </Stack>
         </form>
+      </Modal>
+
+      {/* Modal Partidas Habilitadas por Unidad */}
+      <Modal
+        opened={partidasModalOpened}
+        onClose={closePartidasModal}
+        title={
+          <Box>
+            <Title order={4} c="#1e293b">
+              Partidas Habilitadas — [{selectedUnit?.codigo}] {selectedUnit?.nombre}
+            </Title>
+            <Text size="xs" c="dimmed">
+              Asignación manual de partidas disponibles para esta unidad institucional
+            </Text>
+          </Box>
+        }
+        size="lg"
+        centered
+      >
+        <Stack gap="md">
+          {/* Alerta de presupuestos previos pendientes de habilitar */}
+          {pendientesList.length > 0 && (
+            <Alert
+              icon={<IconAlertCircle size={18} />}
+              title="Presupuestos registrados pendientes de habilitar"
+              color="orange"
+              variant="light"
+            >
+              <Text size="xs" mb="xs">
+                Se detectaron partidas con presupuesto asignado que actualmente no se encuentran
+                habilitadas para esta unidad. Active la casilla para regularizar su habilitación:
+              </Text>
+              <Stack gap="xs">
+                {pendientesList.map((pen) => (
+                  <Group key={pen.partidaId} justify="space-between">
+                    <Text size="xs" fw={600}>
+                      [{pen.codigo}] {pen.descripcion} (Gestión {pen.gestion}: Bs. {pen.montoRegistrado})
+                    </Text>
+                    {isAdmin && (
+                      <Button
+                        size="compact-xs"
+                        color="cpsTeal"
+                        leftSection={<IconCheck size={12} />}
+                        onClick={() => handleTogglePartida(pen.partidaId, false)}
+                        loading={togglingPartidaId === pen.partidaId}
+                      >
+                        Habilitar
+                      </Button>
+                    )}
+                  </Group>
+                ))}
+              </Stack>
+            </Alert>
+          )}
+
+          <Group justify="space-between">
+            <TextInput
+              placeholder="Filtrar por código o descripción..."
+              leftSection={<IconSearch size={14} />}
+              value={partidaSearch}
+              onChange={(e) => setPartidaSearch(e.currentTarget.value)}
+              size="xs"
+              style={{ flex: 1 }}
+            />
+            <Badge color="cpsTeal" variant="light">
+              {partidasList.filter((p) => p.habilitado).length} de {partidasList.length} habilitadas
+            </Badge>
+          </Group>
+
+          <Divider />
+
+          {isLoadingPartidas ? (
+            <Box p="xl" ta="center">
+              <Loader color="cpsTeal" size="sm" />
+            </Box>
+          ) : filteredPartidas.length > 0 ? (
+            <Box style={{ maxHeight: 400, overflowY: 'auto' }}>
+              <Table striped highlightOnHover withTableBorder>
+                <Table.Thead>
+                  <Table.Tr style={{ backgroundColor: '#f8fafc' }}>
+                    <Table.Th style={{ width: 110 }}>Partida</Table.Th>
+                    <Table.Th>Descripción</Table.Th>
+                    <Table.Th style={{ width: 120, textAlign: 'center' }}>Estado</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {filteredPartidas.map((item) => (
+                    <Table.Tr key={item.partidaId}>
+                      <Table.Td>
+                        <Badge color="cpsTeal" variant="outline" size="sm">
+                          {item.codigo}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="sm">{item.descripcion}</Text>
+                      </Table.Td>
+                      <Table.Td style={{ textAlign: 'center' }}>
+                        {isAdmin ? (
+                          <Switch
+                            checked={item.habilitado}
+                            color="cpsTeal"
+                            disabled={togglingPartidaId === item.partidaId}
+                            onChange={() => handleTogglePartida(item.partidaId, item.habilitado)}
+                            label={item.habilitado ? 'Habilitada' : 'Inactiva'}
+                            size="sm"
+                          />
+                        ) : (
+                          <Badge color={item.habilitado ? 'teal' : 'gray'} variant="light">
+                            {item.habilitado ? 'Habilitada' : 'No disponible'}
+                          </Badge>
+                        )}
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Box>
+          ) : (
+            <Text size="sm" c="dimmed" ta="center" py="md">
+              No se encontraron partidas con el criterio especificado.
+            </Text>
+          )}
+
+          <Group justify="flex-end" mt="md">
+            <Button variant="default" onClick={closePartidasModal}>
+              Cerrar
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
     </Stack>
   );

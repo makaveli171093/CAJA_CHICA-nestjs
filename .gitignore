@@ -39,6 +39,14 @@ Thumbs.db
 *.dump
 *.bak
 
+# Test Coverage
+coverage/
+*/coverage/
+
+# Uploads and attachments
+uploads/
+*/uploads/
+
 # Temporary files
 tmp/
 temp/

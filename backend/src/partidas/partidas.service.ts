@@ -2,11 +2,13 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreatePartidaDto, UpdatePartidaDto } from './dto/create-partida.dto';
 import { AuthenticatedUser } from '../common/decorators';
+import { RolUsuario } from '@prisma/client';
 
 @Injectable()
 export class PartidasService {
@@ -50,6 +52,8 @@ export class PartidasService {
     limit?: number;
     search?: string;
     activo?: boolean;
+    unidadId?: string;
+    currentUser?: AuthenticatedUser;
   }) {
     const page = Math.max(1, Number(params.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
@@ -57,6 +61,44 @@ export class PartidasService {
 
     const where: any = {};
     if (params.activo !== undefined) where.activo = params.activo;
+
+    if (params.currentUser) {
+      if (params.currentUser.rol === RolUsuario.ENCARGADO) {
+        if (params.unidadId) {
+          if (!params.currentUser.unidades.includes(params.unidadId)) {
+            throw new ForbiddenException('No tiene permisos para consultar partidas de esta unidad.');
+          }
+          where.unidadesHabilitadas = {
+            some: {
+              unidadId: params.unidadId,
+              activo: true,
+            },
+          };
+        } else {
+          where.unidadesHabilitadas = {
+            some: {
+              unidadId: { in: params.currentUser.unidades },
+              activo: true,
+            },
+          };
+        }
+      } else if (params.currentUser.rol === RolUsuario.ADMINISTRADOR && params.unidadId) {
+        where.unidadesHabilitadas = {
+          some: {
+            unidadId: params.unidadId,
+            activo: true,
+          },
+        };
+      }
+    } else if (params.unidadId) {
+      where.unidadesHabilitadas = {
+        some: {
+          unidadId: params.unidadId,
+          activo: true,
+        },
+      };
+    }
+
     if (params.search) {
       where.OR = [
         { codigo: { contains: params.search, mode: 'insensitive' } },

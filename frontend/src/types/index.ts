@@ -7,9 +7,14 @@ export interface User {
   username: string;
   email?: string | null;
   nombreCompleto: string;
+  nombres?: string | null;
+  apellidos?: string | null;
+  carnetIdentidad?: string | null;
+  cargo?: string | null;
   rol: RolUsuario;
   activo: boolean;
   unidades?: Unit[];
+  responsables?: Responsable[];
 }
 
 export interface Unit {
@@ -24,6 +29,7 @@ export interface Unit {
 
 export interface Responsable {
   id: string;
+  userId?: string | null;
   unidadId: string;
   nombres: string;
   apellidos: string;
@@ -33,13 +39,39 @@ export interface Responsable {
   fechaDesignacion: string;
   activo: boolean;
   unidad?: Unit;
+  user?: User;
 }
+
+export interface DesignacionInput {
+  unidadId: string;
+  documentoDesignacion: string;
+  fechaDesignacion: string;
+  cargo?: string;
+  responsableId?: string;
+}
+
 
 export interface Partida {
   id: string;
   codigo: string;
   descripcion: string;
   activo: boolean;
+}
+
+export interface PartidaHabilitada {
+  id?: string;
+  partidaId: string;
+  codigo: string;
+  descripcion: string;
+  habilitado: boolean;
+}
+
+export interface PendientePresupuesto {
+  partidaId: string;
+  codigo: string;
+  descripcion: string;
+  gestion: number;
+  montoRegistrado: string;
 }
 
 export interface PresupuestoHistorial {
@@ -65,6 +97,18 @@ export interface PresupuestoPartida {
   historial?: PresupuestoHistorial[];
 }
 
+export interface MovimientoEfectivo {
+  id: string;
+  cajaAperturaId: string;
+  tipo: 'APERTURA' | 'REPOSICION' | 'DESCARGO';
+  monto: string;
+  fecha: string;
+  descripcion: string;
+  comprobanteReferencia?: string | null;
+  actorId: string;
+  createdAt?: string;
+}
+
 export interface CajaApertura {
   id: string;
   unidadId: string;
@@ -80,6 +124,7 @@ export interface CajaApertura {
   confirmadoPorId?: string | null;
   unidad?: Unit;
   responsable?: Responsable;
+  movimientos?: MovimientoEfectivo[];
   createdAt?: string;
 }
 

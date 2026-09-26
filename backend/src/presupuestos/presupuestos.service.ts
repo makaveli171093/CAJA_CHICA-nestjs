@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
@@ -29,6 +30,22 @@ export class PresupuestosService {
 
   async create(createDto: CreatePresupuestoDto, currentUser: AuthenticatedUser) {
     this.checkUnitPermission(createDto.unidadId, currentUser);
+
+    // Validar que la partida presupuestaria esté previamente habilitada para esta unidad institucional
+    const partidaHabilitada = await this.prisma.unidadPartida.findUnique({
+      where: {
+        unidadId_partidaId: {
+          unidadId: createDto.unidadId,
+          partidaId: createDto.partidaId,
+        },
+      },
+    });
+
+    if (!partidaHabilitada || !partidaHabilitada.activo) {
+      throw new BadRequestException(
+        'La partida presupuestaria no está habilitada para esta unidad. Solicite al administrador su habilitación previa en el catálogo de la unidad.',
+      );
+    }
 
     const existing = await this.prisma.presupuestoPartida.findUnique({
       where: {

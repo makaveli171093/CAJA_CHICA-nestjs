@@ -33,6 +33,9 @@ describe('AuthService (Seguridad y Control de Acceso)', () => {
       user: {
         findUnique: jest.fn(),
       },
+      unit: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
 
     jwt = {

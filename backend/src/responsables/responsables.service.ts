@@ -70,6 +70,7 @@ export class ResponsablesService {
     limit?: number;
     search?: string;
     activo?: boolean;
+    desvinculados?: boolean;
     currentUser: AuthenticatedUser;
   }) {
     const page = Math.max(1, Number(params.page) || 1);
@@ -77,7 +78,21 @@ export class ResponsablesService {
     const skip = (page - 1) * limit;
 
     const where: any = {};
-    if (params.activo !== undefined) where.activo = params.activo;
+    if (params.desvinculados) {
+      where.userId = null;
+    }
+    if (params.activo !== undefined) {
+      if (params.activo === true) {
+        where.activo = true;
+        where.NOT = {
+          user: {
+            activo: false,
+          },
+        };
+      } else {
+        where.activo = false;
+      }
+    }
 
     if (params.currentUser.rol === RolUsuario.ENCARGADO) {
       if (params.unidadId) {
@@ -107,6 +122,16 @@ export class ResponsablesService {
         orderBy: { createdAt: 'desc' },
         include: {
           unidad: true,
+          user: {
+            select: {
+              id: true,
+              username: true,
+              nombreCompleto: true,
+              email: true,
+              activo: true,
+              rol: true,
+            },
+          },
         },
       }),
       this.prisma.responsable.count({ where }),
@@ -125,6 +150,16 @@ export class ResponsablesService {
       where: { id },
       include: {
         unidad: true,
+        user: {
+          select: {
+            id: true,
+            username: true,
+            nombreCompleto: true,
+            email: true,
+            activo: true,
+            rol: true,
+          },
+        },
       },
     });
 

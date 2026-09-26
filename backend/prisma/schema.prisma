@@ -31,6 +31,10 @@ model User {
   username       String      @unique
   email          String?
   nombreCompleto String
+  nombres        String?
+  apellidos      String?
+  carnetIdentidad String?
+  cargo          String?
   passwordHash   String
   rol            RolUsuario  @default(ENCARGADO)
   activo         Boolean     @default(true)
@@ -38,6 +42,7 @@ model User {
   updatedAt      DateTime    @updatedAt @db.Timestamptz
 
   unidades       UserUnit[]
+  responsables   Responsable[]
   auditorias     Auditoria[]
 
   @@map("usuarios")
@@ -52,10 +57,11 @@ model Unit {
   createdAt   DateTime @default(now()) @db.Timestamptz
   updatedAt   DateTime @updatedAt @db.Timestamptz
 
-  usuarios      UserUnit[]
-  responsables  Responsable[]
-  cajasApertura CajaApertura[]
-  presupuestos  PresupuestoPartida[]
+  usuarios            UserUnit[]
+  responsables        Responsable[]
+  cajasApertura       CajaApertura[]
+  presupuestos        PresupuestoPartida[]
+  partidasHabilitadas UnidadPartida[]
 
   @@map("unidades")
 }
@@ -74,6 +80,7 @@ model UserUnit {
 
 model Responsable {
   id                   String        @id @default(uuid())
+  userId               String?
   unidadId             String
   nombres              String
   apellidos            String
@@ -85,6 +92,7 @@ model Responsable {
   createdAt            DateTime      @default(now()) @db.Timestamptz
   updatedAt            DateTime      @updatedAt @db.Timestamptz
 
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   unidad        Unit           @relation(fields: [unidadId], references: [id])
   cajasApertura CajaApertura[]
 
@@ -99,9 +107,25 @@ model Partida {
   createdAt   DateTime @default(now()) @db.Timestamptz
   updatedAt   DateTime @updatedAt @db.Timestamptz
 
-  presupuestos PresupuestoPartida[]
+  presupuestos        PresupuestoPartida[]
+  unidadesHabilitadas UnidadPartida[]
 
   @@map("partidas")
+}
+
+model UnidadPartida {
+  id        String   @id @default(uuid())
+  unidadId  String
+  partidaId String
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  unidad  Unit    @relation(fields: [unidadId], references: [id], onDelete: Cascade)
+  partida Partida @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+
+  @@unique([unidadId, partidaId])
+  @@map("unidad_partidas")
 }
 
 model PresupuestoPartida {

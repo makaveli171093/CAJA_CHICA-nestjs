@@ -19,11 +19,17 @@ CAJA CHICA/
 │   └── package.json
 ├── docs/                  # Documentación institucional y técnica
 │   ├── ALCANCE_Y_REGLAS.md # Reglas de negocio confirmadas y asuntos pendientes
-│   └── AVANCE.md          # Reporte de avance y verificaciones de la Fase 1
+│   ├── AVANCE.md          # Reporte de avance y verificaciones de la Fase 1
+│   └── TRABAJO_ENTRE_MAQUINAS.md # Guía para sincronizar y trabajar entre dos equipos
 ├── .gitignore             # Protección de credenciales, logs, builds y dependencias
 ├── .env.example           # Plantilla de variables de entorno general
 └── README.md              # Guía de instalación, configuración y ejecución en Windows
 ```
+
+> [!TIP]
+> **¿Trabajando entre dos computadoras distintas?**
+> Consulte la guía detallada paso a paso en [docs/TRABAJO_ENTRE_MAQUINAS.md](./docs/TRABAJO_ENTRE_MAQUINAS.md) para sincronización con Git, resolución de ramas y configuración sin pérdida de datos.
+
 
 ---
 

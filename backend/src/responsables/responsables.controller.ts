@@ -40,6 +40,7 @@ export class ResponsablesController {
     @Query('limit') limit?: number,
     @Query('search') search?: string,
     @Query('activo') activo?: string,
+    @Query('desvinculados') desvinculados?: string,
     @CurrentUser() currentUser?: AuthenticatedUser,
   ) {
     const isActivo = activo === undefined ? undefined : activo === 'true';
@@ -49,6 +50,7 @@ export class ResponsablesController {
       limit,
       search,
       activo: isActivo,
+      desvinculados: desvinculados === 'true',
       currentUser,
     });
   }

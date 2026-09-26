@@ -16,6 +16,7 @@ import {
   Table,
   Divider,
   SimpleGrid,
+  ThemeIcon,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -26,18 +27,25 @@ import {
   IconLock,
   IconFileText,
   IconAlertTriangle,
+  IconBuilding,
+  IconUserPlus,
+  IconPlus,
 } from '@tabler/icons-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { CajaApertura, Responsable } from '../../types';
 
 export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGestion }) => {
-  const { activeUnitId, user } = useAuth();
+  const { activeUnitId, activeUnit, user } = useAuth();
   const [apertura, setApertura] = useState<CajaApertura | null>(null);
   const [responsables, setResponsables] = useState<Responsable[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
+  const navigate = useNavigate();
+
+  const isAdmin = user?.rol === 'ADMINISTRADOR';
 
   // Modal de confirmación sensible
   const [confirmModalOpened, { open: openConfirmModal, close: closeConfirmModal }] =
@@ -54,8 +62,17 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
   });
 
   const fetchData = async () => {
-    if (!activeUnitId) return;
+    if (!activeUnitId) {
+      setApertura(null);
+      setResponsables([]);
+      return;
+    }
+
+    // Limpiar inmediatamente datos anteriores al cambiar de unidad
+    setApertura(null);
+    setResponsables([]);
     setIsLoading(true);
+
     try {
       const [aperturaRes, respRes] = await Promise.all([
         api.get<CajaApertura | null>(`/apertura?unidadId=${activeUnitId}&gestion=${currentGestion}`),
@@ -75,7 +92,7 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
           compIngreso: aperturaRes.data.compIngreso,
         });
       } else {
-        // Reset form
+        // Formulario inicial para nueva apertura
         setFormData({
           responsableId: respRes.data.items[0]?.id || '',
           montoAutorizado: '10000.00',
@@ -102,12 +119,27 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
 
   const handleSaveDraft = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeUnitId) return;
+    if (!activeUnitId) {
+      notifications.show({
+        title: 'Unidad requerida',
+        message: 'Debe seleccionar una unidad activa antes de registrar la apertura.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    if (!formData.responsableId) {
+      notifications.show({
+        title: 'Responsable requerido',
+        message: 'Debe seleccionar un responsable de caja asignado a esta unidad.',
+        color: 'orange',
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       if (apertura && apertura.estado === 'BORRADOR') {
-        // Actualizar
         const res = await api.patch(`/apertura/${apertura.id}`, formData);
         setApertura(res.data);
         notifications.show({
@@ -116,7 +148,6 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
           color: 'teal',
         });
       } else {
-        // Crear nuevo
         const res = await api.post('/apertura', {
           ...formData,
           unidadId: activeUnitId,
@@ -124,8 +155,8 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
         });
         setApertura(res.data);
         notifications.show({
-          title: 'Apertura Registrada',
-          message: 'Se ha creado el registro de apertura en estado BORRADOR.',
+          title: 'Nueva Apertura Registrada',
+          message: 'Se ha creado el registro de apertura en estado BORRADOR. Puede revisarlo antes de confirmar.',
           color: 'teal',
         });
       }
@@ -165,48 +196,74 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
     }
   };
 
+  // Sin unidad seleccionada
   if (!activeUnitId) {
     return (
-      <Paper p="xl" withBorder>
-        <Text c="dimmed">Seleccione una unidad institucional autorizada para gestionar la apertura.</Text>
+      <Paper p="xl" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
+        <Stack align="center" gap="md" py="xl">
+          <ThemeIcon size={56} radius="xl" color="gray" variant="light">
+            <IconBuilding size={32} />
+          </ThemeIcon>
+          <Title order={3} c="#1e293b" ta="center">
+            Sin unidad seleccionada
+          </Title>
+          <Text size="sm" c="dimmed" ta="center" maw={520}>
+            Para aperturar o consultar el fondo de caja chica, seleccione una unidad institucional activa en el selector de la barra superior.
+          </Text>
+          {isAdmin && (
+            <Button
+              variant="outline"
+              color="cpsTeal"
+              onClick={() => navigate('/unidades')}
+            >
+              Gestionar Unidades Institucionales
+            </Button>
+          )}
+        </Stack>
       </Paper>
     );
   }
 
   if (isLoading) {
     return (
-      <Box p="xl" style={{ display: 'flex', justifyContent: 'center' }}>
-        <Loader color="cpsTeal" />
+      <Box p="xl" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 300 }}>
+        <Stack align="center">
+          <Loader color="cpsTeal" size="lg" />
+          <Text size="sm" c="dimmed">
+            Consultando estado de apertura de la unidad...
+          </Text>
+        </Stack>
       </Box>
     );
   }
 
   const isConfirmed = apertura?.estado === 'ABIERTA';
+  const isBorrador = apertura?.estado === 'BORRADOR';
+  const hasNoApertura = !apertura;
 
   return (
     <Stack gap="lg">
+      {/* Encabezado con estado */}
       <Paper p="md" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
-        <Group justify="space-between">
+        <Group justify="space-between" wrap="wrap">
           <Box>
             <Title order={3} c="#1e293b">
-              Apertura del Fondo de Caja Chica
+              {hasNoApertura
+                ? 'Nueva Apertura de Caja Chica'
+                : isBorrador
+                ? 'Apertura de Caja Chica (Borrador)'
+                : 'Apertura de Caja Chica Confirmada'}
             </Title>
             <Text size="xs" c="dimmed">
-              Gestión Fiscal: {currentGestion} | Unidad: {apertura?.unidad?.nombre || 'Unidad Activa'}
+              Gestión Fiscal: {currentGestion} | Unidad: [{activeUnit?.codigo}] {activeUnit?.nombre}
             </Text>
           </Box>
           <Badge
             size="lg"
             variant="filled"
-            color={
-              apertura?.estado === 'ABIERTA'
-                ? 'teal'
-                : apertura?.estado === 'BORRADOR'
-                ? 'yellow'
-                : 'gray'
-            }
+            color={isConfirmed ? 'teal' : isBorrador ? 'yellow' : 'gray'}
           >
-            ESTADO: {apertura?.estado || 'SIN REGISTRO'}
+            ESTADO: {apertura?.estado || 'SIN APERTURA REGISTRADA'}
           </Badge>
         </Group>
       </Paper>
@@ -221,13 +278,53 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
         >
           <Text size="sm">
             La caja chica para esta unidad y gestión fue confirmada formalmente. Se ha emitido la entrada única de
-            efectivo en el libro diario.
+            efectivo en el libro diario institucional.
           </Text>
           <Text size="xs" mt={4} fw={500}>
-            Por normativa de control interno institucional, el importe de fondo confirmado no admite modificaciones
-            directas mediante simples actualizaciones de saldo. Cualquier reposición, descargo o ampliación
-            requerirá operaciones específicas posteriores.
+            Por normativa de control interno institucional de la CPS, el importe de fondo confirmado no admite modificaciones
+            directas de saldo. Cualquier reposición, descargo o ajuste requerirá operaciones formales posteriores.
           </Text>
+        </Alert>
+      )}
+
+      {/* Alerta de Borrador Pendiente */}
+      {isBorrador && (
+        <Alert
+          icon={<IconAlertCircle size={18} />}
+          title="Apertura Guardada en Estado Borrador"
+          color="yellow"
+          radius="md"
+        >
+          <Text size="sm">
+            Los datos de la apertura se encuentran guardados temporalmente. Puede modificarlos si es necesario.
+            Para que la caja chica sea operativa y se registre el ingreso de efectivo en el libro diario, debe
+            proceder con la confirmación definitiva mediante el botón correspondiente.
+          </Text>
+        </Alert>
+      )}
+
+      {/* Alerta si no hay responsables en la unidad */}
+      {responsables.length === 0 && !isConfirmed && (
+        <Alert
+          icon={<IconAlertCircle size={18} />}
+          title="Requisito previo pendiente: Sin Responsable Designado"
+          color="orange"
+          radius="md"
+        >
+          <Text size="sm">
+            La unidad institucional <strong>[{activeUnit?.codigo}] {activeUnit?.nombre}</strong> no cuenta con ningún funcionario activo con designación vigente como Responsable de Caja Chica.
+            Por normativa institucional de la Caja Petrolera de Salud, es requisito obligatorio contar con un responsable con cuenta institucional activa y documento formal de designación antes de abrir el fondo.
+          </Text>
+          <Button
+            size="xs"
+            color="orange"
+            variant="outline"
+            leftSection={<IconUserPlus size={14} />}
+            mt="xs"
+            onClick={() => navigate('/usuarios')}
+          >
+            Designar Encargado en Usuarios y Unidades &rarr;
+          </Button>
         </Alert>
       )}
 
@@ -235,22 +332,39 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
       <Paper p="lg" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
         <form onSubmit={handleSaveDraft}>
           <Stack gap="md">
-            <Title order={4} c="#007B6D">
-              {isConfirmed ? 'Detalle Formal de la Apertura Confirmada' : 'Datos del Registro de Apertura'}
-            </Title>
+            <Group justify="space-between">
+              <Title order={4} c="#007B6D">
+                {isConfirmed
+                  ? 'Detalle Formal de la Apertura Confirmada'
+                  : isBorrador
+                  ? 'Modificar Datos de la Apertura (Borrador)'
+                  : 'Formulario de Nueva Apertura de Caja Chica'}
+              </Title>
+              {hasNoApertura && responsables.length > 0 && (
+                <Badge color="blue" variant="light">
+                  Listo para registrar
+                </Badge>
+              )}
+            </Group>
 
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <Select
                 label="Responsable Designado de Caja Chica"
-                placeholder="Seleccione al funcionario responsable"
+                placeholder={
+                  responsables.length === 0
+                    ? 'No hay encargados activos con designación para esta unidad'
+                    : 'Seleccione al funcionario responsable'
+                }
                 data={responsables.map((r) => ({
                   value: r.id,
-                  label: `${r.nombres} ${r.apellidos} - CI: ${r.carnetIdentidad} (${r.cargo})`,
+                  label: `${r.nombres} ${r.apellidos} - CI: ${r.carnetIdentidad} (${r.cargo})${
+                    r.user ? ` [Usuario: ${r.user.username}]` : ''
+                  }`,
                 }))}
                 value={formData.responsableId}
                 onChange={(val) => setFormData({ ...formData, responsableId: val || '' })}
                 required
-                disabled={isConfirmed}
+                disabled={isConfirmed || responsables.length === 0}
               />
 
               <TextInput
@@ -263,8 +377,7 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               />
 
               <TextInput
-                label="Monto Total Autorizado (Bs.)"
-                description="Límite máximo formal del fondo asignado por resolución"
+                label="Monto Máximo Autorizado del Fondo (Bs.)"
                 placeholder="10000.00"
                 value={formData.montoAutorizado}
                 onChange={(e) => setFormData({ ...formData, montoAutorizado: e.currentTarget.value })}
@@ -273,8 +386,7 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               />
 
               <TextInput
-                label="Importe Efectivamente Recibido en Efectivo (Bs.)"
-                description="Entrada de dinero real que se imputará en la apertura"
+                label="Importe Real Recibido en Efectivo (Bs.)"
                 placeholder="10000.00"
                 value={formData.importeRecibido}
                 onChange={(e) => setFormData({ ...formData, importeRecibido: e.currentTarget.value })}
@@ -283,9 +395,8 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               />
 
               <TextInput
-                label="Referencia del Documento de Autorización"
-                description="Resolución o memorando que autoriza el fondo"
-                placeholder="ej. Resolución Administrativa N° 015/2026"
+                label="Documento de Autorización / Resolución Administrativa"
+                placeholder="ej. Res. Adm. DAF-045/2026"
                 value={formData.docAutorizacion}
                 onChange={(e) => setFormData({ ...formData, docAutorizacion: e.currentTarget.value })}
                 required
@@ -293,9 +404,8 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               />
 
               <TextInput
-                label="Referencia del Comprobante de Ingreso"
-                description="Comprobante de egreso general o cheque entregado"
-                placeholder="ej. Comprobante Egreso C-0081 / Cheque N° 99120"
+                label="Comprobante de Ingreso / Cheque Institucional"
+                placeholder="ej. CHQ-BUN-458921"
                 value={formData.compIngreso}
                 onChange={(e) => setFormData({ ...formData, compIngreso: e.currentTarget.value })}
                 required
@@ -310,15 +420,16 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               <Group justify="flex-end" gap="sm">
                 <Button
                   type="submit"
-                  variant="outline"
                   color="cpsTeal"
                   loading={isSubmitting}
                   disabled={responsables.length === 0}
+                  leftSection={hasNoApertura ? <IconPlus size={16} /> : undefined}
+                  variant={isBorrador ? 'outline' : 'filled'}
                 >
-                  {apertura ? 'Actualizar Borrador' : 'Guardar como Borrador'}
+                  {hasNoApertura ? 'Crear Registro de Apertura' : 'Actualizar Borrador'}
                 </Button>
 
-                {apertura && apertura.estado === 'BORRADOR' && (
+                {isBorrador && (
                   <Button
                     color="cpsTeal"
                     leftSection={<IconCheck size={16} />}
@@ -329,16 +440,48 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
                 )}
               </Group>
             )}
-
-            {responsables.length === 0 && !isConfirmed && (
-              <Alert icon={<IconAlertCircle size={16} />} title="Atención" color="orange">
-                No hay responsables registrados y activos para esta unidad. Diríjase al módulo de "Responsables de Caja"
-                para registrar al funcionario designado antes de aperturar el fondo.
-              </Alert>
-            )}
           </Stack>
         </form>
       </Paper>
+
+      {/* Movimientos de Efectivo si la caja está abierta */}
+      {isConfirmed && apertura.movimientos && (
+        <Paper p="md" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
+          <Title order={4} mb="md" c="#1e293b">
+            Movimientos de Efectivo Registrados en este Fondo
+          </Title>
+          <Table striped highlightOnHover withTableBorder>
+            <Table.Thead>
+              <Table.Tr style={{ backgroundColor: '#f1f5f9' }}>
+                <Table.Th style={{ width: 140 }}>Fecha</Table.Th>
+                <Table.Th style={{ width: 130 }}>Tipo</Table.Th>
+                <Table.Th>Descripción</Table.Th>
+                <Table.Th style={{ width: 160 }}>Comprobante</Table.Th>
+                <Table.Th style={{ width: 160, textAlign: 'right' }}>Importe (Bs.)</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {apertura.movimientos.map((m) => (
+                <Table.Tr key={m.id}>
+                  <Table.Td style={{ fontSize: '12px' }}>
+                    {new Date(m.fecha).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })}
+                  </Table.Td>
+                  <Table.Td>
+                    <Badge color="teal" variant="light">
+                      {m.tipo}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td style={{ fontWeight: 500 }}>{m.descripcion}</Table.Td>
+                  <Table.Td>{m.comprobanteReferencia || '-'}</Table.Td>
+                  <Table.Td style={{ textAlign: 'right', fontWeight: 700, color: '#007B6D' }}>
+                    +Bs. {m.monto}
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Paper>
+      )}
 
       {/* Modal de Confirmación Sensible */}
       <Modal
@@ -358,29 +501,14 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
         <Stack gap="md">
           <Text size="sm">
             ¿Está seguro de confirmar formalmente la apertura de Caja Chica para la gestión{' '}
-            <strong>{currentGestion}</strong>?
+            <strong>{currentGestion}</strong> en la unidad{' '}
+            <strong>[{activeUnit?.codigo}] {activeUnit?.nombre}</strong>?
           </Text>
-
-          <Paper p="sm" withBorder style={{ backgroundColor: '#f8fafc' }}>
-            <Text size="xs" c="dimmed">
-              - Monto Autorizado: <strong>Bs. {formData.montoAutorizado}</strong>
-            </Text>
-            <Text size="xs" c="dimmed">
-              - Efectivo Recibido: <strong>Bs. {formData.importeRecibido}</strong>
-            </Text>
-            <Text size="xs" c="dimmed">
-              - Documento: <strong>{formData.docAutorizacion}</strong>
-            </Text>
-            <Text size="xs" c="dimmed">
-              - Comprobante: <strong>{formData.compIngreso}</strong>
-            </Text>
-          </Paper>
-
-          <Alert color="yellow">
-            Esta acción se ejecutará en una transacción atómica inmutable y creará la entrada de efectivo inicial. Una
-            vez confirmada, no podrá modificar directamente los importes ingresados.
-          </Alert>
-
+          <Text size="xs" c="dimmed">
+            Esta acción generará la entrada única de efectivo por{' '}
+            <strong>Bs. {formData.importeRecibido}</strong> y fijará el estado formal como ABIERTA.
+            Por control institucional, esta acción es irreversible.
+          </Text>
           <Group justify="flex-end" mt="md">
             <Button variant="default" onClick={closeConfirmModal} disabled={isConfirming}>
               Cancelar
@@ -390,7 +518,7 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               onClick={handleConfirmApertura}
               loading={isConfirming}
             >
-              Sí, Confirmar Apertura
+              Confirmar Apertura Definitiva
             </Button>
           </Group>
         </Stack>

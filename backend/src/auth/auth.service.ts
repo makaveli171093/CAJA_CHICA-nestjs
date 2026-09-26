@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { LoginDto } from './dto/login.dto';
+import { RolUsuario } from '@prisma/client';
 
 interface LoginAttemptInfo {
   attempts: number;
@@ -134,6 +135,16 @@ export class AuthService {
       userAgent,
     });
 
+    let accessibleUnits: any[] = [];
+    if (user.rol === RolUsuario.ADMINISTRADOR) {
+      accessibleUnits = await this.prisma.unit.findMany({
+        where: { activo: true },
+        orderBy: { codigo: 'asc' },
+      });
+    } else {
+      accessibleUnits = user.unidades.map((u) => u.unit).filter((u) => u.activo);
+    }
+
     return {
       token,
       user: {
@@ -141,9 +152,13 @@ export class AuthService {
         username: user.username,
         email: user.email,
         nombreCompleto: user.nombreCompleto,
+        nombres: user.nombres,
+        apellidos: user.apellidos,
+        carnetIdentidad: user.carnetIdentidad,
+        cargo: user.cargo,
         rol: user.rol,
         activo: user.activo,
-        unidades: user.unidades.map((u) => u.unit),
+        unidades: accessibleUnits,
       },
     };
   }
@@ -164,14 +179,28 @@ export class AuthService {
       throw new UnauthorizedException('Usuario no encontrado o inactivo.');
     }
 
+    let accessibleUnits: any[] = [];
+    if (user.rol === RolUsuario.ADMINISTRADOR) {
+      accessibleUnits = await this.prisma.unit.findMany({
+        where: { activo: true },
+        orderBy: { codigo: 'asc' },
+      });
+    } else {
+      accessibleUnits = user.unidades.map((u) => u.unit).filter((u) => u.activo);
+    }
+
     return {
       id: user.id,
       username: user.username,
       email: user.email,
       nombreCompleto: user.nombreCompleto,
+      nombres: user.nombres,
+      apellidos: user.apellidos,
+      carnetIdentidad: user.carnetIdentidad,
+      cargo: user.cargo,
       rol: user.rol,
       activo: user.activo,
-      unidades: user.unidades.map((u) => u.unit),
+      unidades: accessibleUnits,
     };
   }
 }

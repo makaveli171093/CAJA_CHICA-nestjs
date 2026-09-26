@@ -41,9 +41,11 @@ export class PartidasController {
     @Query('limit') limit?: number,
     @Query('search') search?: string,
     @Query('activo') activo?: string,
+    @Query('unidadId') unidadId?: string,
+    @CurrentUser() currentUser?: AuthenticatedUser,
   ) {
     const isActivo = activo === undefined ? undefined : activo === 'true';
-    return this.partidasService.findAll({ page, limit, search, activo: isActivo });
+    return this.partidasService.findAll({ page, limit, search, activo: isActivo, unidadId, currentUser });
   }
 
   @Get(':id')

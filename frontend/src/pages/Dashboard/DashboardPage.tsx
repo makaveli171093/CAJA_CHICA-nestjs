@@ -20,10 +20,11 @@ import {
   IconReceipt2,
   IconWallet,
   IconAlertCircle,
-  IconCheck,
   IconUser,
   IconFileText,
   IconLockOpen,
+  IconBuilding,
+  IconShieldLock,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -31,11 +32,13 @@ import { api } from '../../services/api';
 import { DashboardData } from '../../types';
 
 export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGestion }) => {
-  const { activeUnitId, activeUnit } = useAuth();
+  const { activeUnitId, activeUnit, unitsStatus, user } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const isAdmin = user?.rol === 'ADMINISTRADOR';
 
   const fetchDashboard = async () => {
     if (!activeUnitId) {
@@ -43,6 +46,8 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
       return;
     }
 
+    // Limpiar inmediatamente datos anteriores al cambiar de unidad
+    setData(null);
     setIsLoading(true);
     setError(null);
     try {
@@ -64,18 +69,73 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
     fetchDashboard();
   }, [activeUnitId, currentGestion]);
 
+  // Pantallas de estado cuando no hay unidad activa seleccionada
   if (!activeUnitId) {
+    if (unitsStatus === 'loading') {
+      return (
+        <Box p="xl" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 300 }}>
+          <Stack align="center">
+            <Loader color="cpsTeal" size="lg" />
+            <Text size="sm" c="dimmed">
+              Cargando unidades autorizadas...
+            </Text>
+          </Stack>
+        </Box>
+      );
+    }
+
+    if (unitsStatus === 'empty') {
+      return (
+        <Paper p="xl" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
+          <Stack align="center" gap="md" py="xl">
+            <ThemeIcon size={56} radius="xl" color="orange" variant="light">
+              <IconBuilding size={32} />
+            </ThemeIcon>
+            <Title order={3} c="#1e293b" ta="center">
+              No existen unidades institucionales registradas
+            </Title>
+            <Text size="sm" c="dimmed" ta="center" maw={500}>
+              Para comenzar a operar el sistema de caja chica, registre la primera unidad institucional o establecimiento de salud.
+            </Text>
+            {isAdmin && (
+              <Button color="cpsTeal" onClick={() => navigate('/unidades')}>
+                Ir a Unidades Institucionales
+              </Button>
+            )}
+          </Stack>
+        </Paper>
+      );
+    }
+
+    if (unitsStatus === 'no_permission') {
+      return (
+        <Paper p="xl" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
+          <Stack align="center" gap="md" py="xl">
+            <ThemeIcon size={56} radius="xl" color="red" variant="light">
+              <IconShieldLock size={32} />
+            </ThemeIcon>
+            <Title order={3} c="#1e293b" ta="center">
+              Sin unidades asignadas
+            </Title>
+            <Text size="sm" c="dimmed" ta="center" maw={500}>
+              Su usuario no cuenta con ninguna unidad institucional asignada actualmente. Solicite a la administración central que le asigne su unidad en el módulo de Usuarios y Unidades.
+            </Text>
+          </Stack>
+        </Paper>
+      );
+    }
+
     return (
-      <Paper p="xl" radius="md" withBorder>
-        <Stack align="center" gap="sm">
-          <ThemeIcon size={48} radius="xl" color="gray">
-            <IconAlertCircle size={28} />
+      <Paper p="xl" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
+        <Stack align="center" gap="sm" py="xl">
+          <ThemeIcon size={56} radius="xl" color="gray" variant="light">
+            <IconAlertCircle size={32} />
           </ThemeIcon>
           <Title order={3} c="dimmed">
             Sin unidad seleccionada
           </Title>
           <Text size="sm" c="dimmed" ta="center">
-            Seleccione una unidad institucional autorizada en el menú superior para visualizar su estado de caja.
+            Seleccione una unidad institucional en el selector superior para visualizar saldos y estados de caja.
           </Text>
         </Stack>
       </Paper>
@@ -88,7 +148,7 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
         <Stack align="center">
           <Loader color="cpsTeal" size="lg" />
           <Text size="sm" c="dimmed">
-            Cargando saldos y presupuestos de la unidad...
+            Consultando saldos y presupuestos de la unidad...
           </Text>
         </Stack>
       </Box>
@@ -104,7 +164,6 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
   }
 
   const caja = data?.caja;
-  const isAperturada = caja?.estado === 'ABIERTA';
 
   return (
     <Stack gap="lg">
@@ -114,14 +173,14 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
           <Box>
             <Group gap="xs">
               <Badge color="cpsTeal" size="lg" variant="filled">
-                {data?.unidad.codigo}
+                {data?.unidad.codigo || activeUnit?.codigo}
               </Badge>
               <Title order={3} fw={700} c="#1e293b">
-                {data?.unidad.nombre}
+                {data?.unidad.nombre || activeUnit?.nombre}
               </Title>
             </Group>
             <Text size="xs" c="dimmed" mt={4}>
-              Dependencia: {data?.unidad.dependencia || 'Nivel Central'} | Gestión Fiscal: {currentGestion}
+              Dependencia: {data?.unidad.dependencia || activeUnit?.dependencia || 'Nivel Central'} | Gestión Fiscal: {currentGestion}
             </Text>
           </Box>
 
@@ -218,7 +277,7 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
         </Card>
       </SimpleGrid>
 
-      {/* Datos del Responsable y Documentos */}
+      {/* Datos del Responsable o Acción de Apertura */}
       {caja ? (
         <Paper p="md" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
           <Title order={4} mb="sm" c="#1e293b">
@@ -268,14 +327,14 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
           </SimpleGrid>
         </Paper>
       ) : (
-        <Paper p="lg" radius="md" withBorder style={{ backgroundColor: '#fffbeb' }}>
-          <Group justify="space-between">
+        <Paper p="lg" radius="md" withBorder style={{ backgroundColor: '#fffbeb', borderColor: '#fef3c7' }}>
+          <Group justify="space-between" wrap="wrap">
             <Box>
-              <Text fw={600} c="#92400e">
-                La caja chica para esta unidad y gestión aún no ha sido registrada.
+              <Text fw={700} c="#92400e">
+                La caja chica para esta unidad y gestión no ha sido aperturada aún.
               </Text>
               <Text size="xs" c="#b45309" mt={2}>
-                Registre la apertura inicial indicando el responsable, monto autorizado y efectivo recibido.
+                Registre la apertura inicial indicando el responsable, importe autorizado y comprobante de ingreso de efectivo.
               </Text>
             </Box>
             <Button
@@ -283,7 +342,7 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
               leftSection={<IconLockOpen size={16} />}
               onClick={() => navigate('/apertura')}
             >
-              Registrar Apertura
+              Aperturar Caja Chica
             </Button>
           </Group>
         </Paper>

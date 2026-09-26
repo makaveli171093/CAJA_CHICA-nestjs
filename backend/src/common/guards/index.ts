@@ -4,11 +4,13 @@ import {
   ExecutionContext,
   ForbiddenException,
   UnauthorizedException,
+  NotFoundException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { RolUsuario } from '@prisma/client';
 import { IS_PUBLIC_KEY, ROLES_KEY, AuthenticatedUser } from '../decorators';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -55,7 +57,9 @@ export class RolesGuard implements CanActivate {
 
 @Injectable()
 export class UnitAccessGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  constructor(private prisma?: PrismaService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const user = request.user as AuthenticatedUser;
 
@@ -68,23 +72,73 @@ export class UnitAccessGuard implements CanActivate {
       return true;
     }
 
-    // Obtener unidadId desde params, query o body
+    // 1. Obtener unidadId explícito si fue enviado en params, query o body
     const unidadId =
       request.params?.unidadId ||
       request.query?.unidadId ||
       request.body?.unidadId;
 
-    if (!unidadId) {
-      // Si la ruta no especifica unidadId, se permite solo si el controlador maneja filtrado por unidades asignadas
-      return true;
+    if (unidadId) {
+      const hasAccess = user.unidades && user.unidades.includes(unidadId);
+      if (!hasAccess) {
+        throw new ForbiddenException(
+          'Acceso denegado: No cuenta con autorización para operar en la unidad indicada.',
+        );
+      }
     }
 
-    // Verificar que el usuario tenga la unidad asignada
-    const hasAccess = user.unidades && user.unidades.includes(unidadId);
-    if (!hasAccess) {
-      throw new ForbiddenException(
-        'Acceso denegado: No cuenta con autorización para operar en la unidad solicitada.',
-      );
+    // 2. Si se envía un :id de recurso directo, resolver a la unidad real en BD
+    const resourceId = request.params?.id;
+    if (resourceId && this.prisma) {
+      const path = (request.baseUrl || request.url || '').toLowerCase();
+
+      if (path.includes('unidades')) {
+        const hasAccess = user.unidades && user.unidades.includes(resourceId);
+        if (!hasAccess) {
+          throw new ForbiddenException(
+            'Acceso denegado: No tiene autorización para consultar o modificar esta unidad.',
+          );
+        }
+      } else if (path.includes('responsables')) {
+        const responsable = await this.prisma.responsable.findUnique({
+          where: { id: resourceId },
+          select: { unidadId: true },
+        });
+        if (responsable) {
+          const hasAccess = user.unidades && user.unidades.includes(responsable.unidadId);
+          if (!hasAccess) {
+            throw new ForbiddenException(
+              'Acceso denegado: El responsable pertenece a una unidad no autorizada para su usuario.',
+            );
+          }
+        }
+      } else if (path.includes('presupuestos')) {
+        const presupuesto = await this.prisma.presupuestoPartida.findUnique({
+          where: { id: resourceId },
+          select: { unidadId: true },
+        });
+        if (presupuesto) {
+          const hasAccess = user.unidades && user.unidades.includes(presupuesto.unidadId);
+          if (!hasAccess) {
+            throw new ForbiddenException(
+              'Acceso denegado: La asignación presupuestaria pertenece a una unidad no autorizada.',
+            );
+          }
+        }
+      } else if (path.includes('apertura')) {
+        const apertura = await this.prisma.cajaApertura.findUnique({
+          where: { id: resourceId },
+          select: { unidadId: true },
+        });
+        if (apertura) {
+          const hasAccess = user.unidades && user.unidades.includes(apertura.unidadId);
+          if (!hasAccess) {
+            throw new ForbiddenException(
+              'Acceso denegado: La apertura de caja pertenece a una unidad no autorizada.',
+            );
+          }
+        }
+      }
     }
 
     return true;

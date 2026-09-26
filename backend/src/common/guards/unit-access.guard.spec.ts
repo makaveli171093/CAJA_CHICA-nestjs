@@ -24,7 +24,7 @@ describe('UnitAccessGuard (Aislamiento entre Unidades)', () => {
     } as unknown as ExecutionContext;
   };
 
-  it('debe permitir acceso al Administrador a cualquier unidad (acceso global)', () => {
+  it('debe permitir acceso al Administrador a cualquier unidad (acceso global)', async () => {
     const adminUser = {
       id: 'admin-1',
       username: 'admin',
@@ -33,10 +33,10 @@ describe('UnitAccessGuard (Aislamiento entre Unidades)', () => {
     };
 
     const ctx = createMockContext(adminUser, { unidadId: 'unidad-foranea' });
-    expect(guard.canActivate(ctx)).toBe(true);
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
 
-  it('debe permitir acceso al Encargado si la unidad solicitada está en sus unidades autorizadas', () => {
+  it('debe permitir acceso al Encargado si la unidad solicitada está en sus unidades autorizadas', async () => {
     const encargadoUser = {
       id: 'encargado-1',
       username: 'encargado',
@@ -45,10 +45,10 @@ describe('UnitAccessGuard (Aislamiento entre Unidades)', () => {
     };
 
     const ctx = createMockContext(encargadoUser, { unidadId: 'unidad-1' });
-    expect(guard.canActivate(ctx)).toBe(true);
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
 
-  it('debe BLOQUEAR al Encargado cuando intenta acceder a una unidad no asignada (ID foráneo)', () => {
+  it('debe BLOQUEAR al Encargado cuando intenta acceder a una unidad no asignada (ID foráneo)', async () => {
     const encargadoUser = {
       id: 'encargado-1',
       username: 'encargado',
@@ -57,10 +57,10 @@ describe('UnitAccessGuard (Aislamiento entre Unidades)', () => {
     };
 
     const ctx = createMockContext(encargadoUser, { unidadId: 'unidad-2' });
-    expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
+    await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 
-  it('debe detectar unidadId enviado en query params y bloquear si no está asignada', () => {
+  it('debe detectar unidadId enviado en query params y bloquear si no está asignada', async () => {
     const encargadoUser = {
       id: 'encargado-1',
       username: 'encargado',
@@ -69,6 +69,6 @@ describe('UnitAccessGuard (Aislamiento entre Unidades)', () => {
     };
 
     const ctx = createMockContext(encargadoUser, {}, { unidadId: 'unidad-no-autorizada' });
-    expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
+    await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 });

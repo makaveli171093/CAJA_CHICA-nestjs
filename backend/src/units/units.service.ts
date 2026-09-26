@@ -176,4 +176,169 @@ export class UnitsService {
 
     return { message: `Unidad "${unit.nombre}" desactivada con éxito.`, unit: updated };
   }
+
+  async getPartidasHabilitadas(unidadId: string, currentUser: AuthenticatedUser) {
+    if (
+      currentUser.rol === RolUsuario.ENCARGADO &&
+      !currentUser.unidades.includes(unidadId)
+    ) {
+      throw new NotFoundException('Unidad no encontrada o no autorizada.');
+    }
+
+    const unit = await this.prisma.unit.findUnique({ where: { id: unidadId } });
+    if (!unit) {
+      throw new NotFoundException('Unidad institucional no encontrada.');
+    }
+
+    if (currentUser.rol === RolUsuario.ENCARGADO) {
+      // Encargados solo ven las partidas activas que están habilitadas para esta unidad
+      const habilitadas = await this.prisma.unidadPartida.findMany({
+        where: {
+          unidadId,
+          activo: true,
+          partida: { activo: true },
+        },
+        include: {
+          partida: true,
+        },
+        orderBy: {
+          partida: { codigo: 'asc' },
+        },
+      });
+
+      return habilitadas.map((h) => ({
+        id: h.id,
+        partidaId: h.partidaId,
+        codigo: h.partida.codigo,
+        descripcion: h.partida.descripcion,
+        habilitado: true,
+      }));
+    }
+
+    // Administrador: obtiene el catálogo completo indicando cuáles están habilitadas
+    const [todasPartidas, asignaciones] = await Promise.all([
+      this.prisma.partida.findMany({
+        where: { activo: true },
+        orderBy: { codigo: 'asc' },
+      }),
+      this.prisma.unidadPartida.findMany({
+        where: { unidadId },
+      }),
+    ]);
+
+    const mapaAsignaciones = new Map<string, boolean>();
+    asignaciones.forEach((a) => mapaAsignaciones.set(a.partidaId, a.activo));
+
+    return todasPartidas.map((p) => ({
+      partidaId: p.id,
+      codigo: p.codigo,
+      descripcion: p.descripcion,
+      habilitado: mapaAsignaciones.get(p.id) || false,
+    }));
+  }
+
+  async togglePartidaHabilitada(
+    unidadId: string,
+    dto: { partidaId: string; activo: boolean },
+    currentUser: AuthenticatedUser,
+  ) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
+      throw new BadRequestException('Solo el administrador puede habilitar o inhabilitar partidas.');
+    }
+
+    const [unit, partida] = await Promise.all([
+      this.prisma.unit.findUnique({ where: { id: unidadId } }),
+      this.prisma.partida.findUnique({ where: { id: dto.partidaId } }),
+    ]);
+
+    if (!unit) {
+      throw new NotFoundException('Unidad institucional no encontrada.');
+    }
+    if (!partida) {
+      throw new NotFoundException('Partida presupuestaria no encontrada en el clasificador.');
+    }
+
+    const record = await this.prisma.unidadPartida.upsert({
+      where: {
+        unidadId_partidaId: {
+          unidadId,
+          partidaId: dto.partidaId,
+        },
+      },
+      create: {
+        unidadId,
+        partidaId: dto.partidaId,
+        activo: dto.activo,
+      },
+      update: {
+        activo: dto.activo,
+      },
+    });
+
+    await this.auditService.log({
+      actorId: currentUser.id,
+      actorUsername: currentUser.username,
+      accion: dto.activo ? 'HABILITAR_PARTIDA_UNIDAD' : 'DESHABILITAR_PARTIDA_UNIDAD',
+      entidad: 'UnidadPartida',
+      entidadId: record.id,
+      detalle: {
+        unidadId,
+        codigoUnidad: unit.codigo,
+        partidaId: dto.partidaId,
+        codigoPartida: partida.codigo,
+        activo: dto.activo,
+      },
+    });
+
+    return {
+      message: `Partida ${partida.codigo} ${dto.activo ? 'habilitada' : 'deshabilitada'} para ${unit.codigo}.`,
+      item: record,
+    };
+  }
+
+  async getPendientesPresupuesto(unidadId: string, currentUser: AuthenticatedUser) {
+    if (
+      currentUser.rol === RolUsuario.ENCARGADO &&
+      !currentUser.unidades.includes(unidadId)
+    ) {
+      throw new NotFoundException('Unidad no encontrada o no autorizada.');
+    }
+
+    const unit = await this.prisma.unit.findUnique({ where: { id: unidadId } });
+    if (!unit) {
+      throw new NotFoundException('Unidad no encontrada.');
+    }
+
+    // Buscar partidas con presupuestos registrados en esta unidad
+    const presupuestos = await this.prisma.presupuestoPartida.findMany({
+      where: { unidadId },
+      include: { partida: true },
+    });
+
+    if (presupuestos.length === 0) {
+      return [];
+    }
+
+    // Obtener partidas actualmente habilitadas
+    const habilitadas = await this.prisma.unidadPartida.findMany({
+      where: { unidadId, activo: true },
+    });
+    const habilitadasSet = new Set(habilitadas.map((h) => h.partidaId));
+
+    // Filtrar aquellas con presupuesto previo que no están habilitadas
+    const pendientesMap = new Map<string, any>();
+    for (const p of presupuestos) {
+      if (!habilitadasSet.has(p.partidaId) && !pendientesMap.has(p.partidaId)) {
+        pendientesMap.set(p.partidaId, {
+          partidaId: p.partida.id,
+          codigo: p.partida.codigo,
+          descripcion: p.partida.descripcion,
+          gestion: p.gestion,
+          montoRegistrado: p.montoAsignado.toFixed(2),
+        });
+      }
+    }
+
+    return Array.from(pendientesMap.values());
+  }
 }

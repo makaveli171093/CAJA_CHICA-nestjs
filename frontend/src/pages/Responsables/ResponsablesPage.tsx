@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Title,
   Text,
@@ -8,33 +9,21 @@ import {
   Button,
   Table,
   Badge,
-  Modal,
-  TextInput,
   Loader,
   Box,
+  Alert,
 } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconPlus, IconUserCheck, IconUserX } from '@tabler/icons-react';
+import { IconUserPlus, IconUserX, IconEdit, IconInfoCircle } from '@tabler/icons-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { Responsable } from '../../types';
 
 export const ResponsablesPage: React.FC = () => {
   const { activeUnitId } = useAuth();
+  const navigate = useNavigate();
   const [responsables, setResponsables] = useState<Responsable[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [opened, { open, close }] = useDisclosure(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [form, setForm] = useState({
-    nombres: '',
-    apellidos: '',
-    carnetIdentidad: '',
-    cargo: 'Encargado de Caja Chica',
-    documentoDesignacion: '',
-    fechaDesignacion: new Date().toISOString().split('T')[0],
-  });
 
   const fetchData = async () => {
     if (!activeUnitId) return;
@@ -59,49 +48,12 @@ export const ResponsablesPage: React.FC = () => {
     fetchData();
   }, [activeUnitId]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeUnitId) return;
-
-    setIsSubmitting(true);
-    try {
-      await api.post('/responsables', {
-        ...form,
-        unidadId: activeUnitId,
-      });
-
-      notifications.show({
-        title: 'Responsable Registrado',
-        message: 'El funcionario fue registrado exitosamente.',
-        color: 'teal',
-      });
-      close();
-      setForm({
-        nombres: '',
-        apellidos: '',
-        carnetIdentidad: '',
-        cargo: 'Encargado de Caja Chica',
-        documentoDesignacion: '',
-        fechaDesignacion: new Date().toISOString().split('T')[0],
-      });
-      fetchData();
-    } catch (err: any) {
-      notifications.show({
-        title: 'Error al registrar',
-        message: err.response?.data?.message || 'No se pudo registrar el responsable.',
-        color: 'red',
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleDeactivate = async (id: string) => {
     try {
       await api.delete(`/responsables/${id}`);
       notifications.show({
-        title: 'Responsable Desactivado',
-        message: 'El responsable fue marcado como inactivo (se conserva en histórico).',
+        title: 'Designación Desactivada',
+        message: 'La designación de responsable fue marcada como inactiva (se conserva en el historial de aperturas).',
         color: 'teal',
       });
       fetchData();
@@ -120,22 +72,34 @@ export const ResponsablesPage: React.FC = () => {
         <Group justify="space-between">
           <Box>
             <Title order={3} c="#1e293b">
-              Responsables de Caja Chica
+              Encargados y Responsables de Caja Chica
             </Title>
             <Text size="xs" c="dimmed">
-              Funcionarios designados formalmente para la custodia y administración de fondos
+              Consulta de funcionarios formalmente designados para la custodia de fondos en la unidad activa
             </Text>
           </Box>
           <Button
             color="cpsTeal"
-            leftSection={<IconPlus size={16} />}
-            onClick={open}
-            disabled={!activeUnitId}
+            leftSection={<IconUserPlus size={16} />}
+            onClick={() => navigate('/usuarios')}
           >
-            Nuevo Responsable
+            Registrar / Editar en Usuarios
           </Button>
         </Group>
       </Paper>
+
+      <Alert color="teal" icon={<IconInfoCircle size={18} />}>
+        El registro y actualización de encargados está unificado con las cuentas de usuario en{' '}
+        <Text
+          span
+          fw={700}
+          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+          onClick={() => navigate('/usuarios')}
+        >
+          Usuarios y Unidades
+        </Text>
+        . Toda designación mantiene una sola identidad personal vinculada a su cuenta de acceso institucional.
+      </Alert>
 
       <Paper p="md" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
         {isLoading ? (
@@ -146,9 +110,10 @@ export const ResponsablesPage: React.FC = () => {
           <Table striped highlightOnHover withTableBorder>
             <Table.Thead>
               <Table.Tr style={{ backgroundColor: '#f1f5f9' }}>
-                <Table.Th>Nombres y Apellidos</Table.Th>
+                <Table.Th>Funcionario Designado</Table.Th>
                 <Table.Th>Carnet de Identidad</Table.Th>
                 <Table.Th>Cargo Institucional</Table.Th>
+                <Table.Th>Cuenta de Usuario</Table.Th>
                 <Table.Th>Documento de Designación</Table.Th>
                 <Table.Th>Fecha Designación</Table.Th>
                 <Table.Th>Estado</Table.Th>
@@ -163,25 +128,51 @@ export const ResponsablesPage: React.FC = () => {
                   </Table.Td>
                   <Table.Td>{r.carnetIdentidad}</Table.Td>
                   <Table.Td>{r.cargo}</Table.Td>
-                  <Table.Td>{r.documentoDesignacion}</Table.Td>
+                  <Table.Td>
+                    {r.user ? (
+                      <Badge color="blue" variant="light">
+                        {r.user.username}
+                      </Badge>
+                    ) : (
+                      <Text size="xs" c="dimmed">
+                        Sin cuenta vinculada
+                      </Text>
+                    )}
+                  </Table.Td>
+                  <Table.Td>
+                    <Badge color="teal" variant="outline">
+                      {r.documentoDesignacion}
+                    </Badge>
+                  </Table.Td>
                   <Table.Td>{new Date(r.fechaDesignacion).toLocaleDateString('es-BO')}</Table.Td>
                   <Table.Td>
-                    <Badge color={r.activo ? 'teal' : 'gray'} variant="light">
-                      {r.activo ? 'ACTIVO' : 'INACTIVO'}
+                    <Badge color={r.activo && (!r.user || r.user.activo) ? 'teal' : 'gray'} variant="light">
+                      {r.activo && (!r.user || r.user.activo) ? 'ACTIVO' : 'INACTIVO'}
                     </Badge>
                   </Table.Td>
                   <Table.Td style={{ textAlign: 'center' }}>
-                    {r.activo && (
+                    <Group gap={6} justify="center">
                       <Button
                         size="xs"
                         variant="subtle"
-                        color="red"
-                        leftSection={<IconUserX size={14} />}
-                        onClick={() => handleDeactivate(r.id)}
+                        color="cpsTeal"
+                        leftSection={<IconEdit size={14} />}
+                        onClick={() => navigate('/usuarios')}
                       >
-                        Desactivar
+                        Editar
                       </Button>
-                    )}
+                      {r.activo && (
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          color="red"
+                          leftSection={<IconUserX size={14} />}
+                          onClick={() => handleDeactivate(r.id)}
+                        >
+                          Desactivar
+                        </Button>
+                      )}
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -189,74 +180,19 @@ export const ResponsablesPage: React.FC = () => {
           </Table>
         ) : (
           <Box p="xl" ta="center">
-            <Text c="dimmed">No hay responsables registrados para esta unidad.</Text>
+            <Text c="dimmed">No hay responsables ni designaciones registradas para esta unidad.</Text>
+            <Button
+              mt="md"
+              size="xs"
+              variant="light"
+              color="cpsTeal"
+              onClick={() => navigate('/usuarios')}
+            >
+              Asignar Encargado en Usuarios
+            </Button>
           </Box>
         )}
       </Paper>
-
-      {/* Modal Nuevo Responsable */}
-      <Modal opened={opened} onClose={close} title="Registrar Responsable de Caja" centered>
-        <form onSubmit={handleCreate}>
-          <Stack gap="md">
-            <TextInput
-              label="Nombres"
-              placeholder="ej. Carlos Alberto"
-              required
-              value={form.nombres}
-              onChange={(e) => setForm({ ...form, nombres: e.currentTarget.value })}
-            />
-
-            <TextInput
-              label="Apellidos"
-              placeholder="ej. Mamani Flores"
-              required
-              value={form.apellidos}
-              onChange={(e) => setForm({ ...form, apellidos: e.currentTarget.value })}
-            />
-
-            <TextInput
-              label="Carnet de Identidad (Texto)"
-              placeholder="ej. 4892145 LP"
-              required
-              value={form.carnetIdentidad}
-              onChange={(e) => setForm({ ...form, carnetIdentidad: e.currentTarget.value })}
-            />
-
-            <TextInput
-              label="Cargo Institucional"
-              placeholder="ej. Encargado de Caja Chica"
-              required
-              value={form.cargo}
-              onChange={(e) => setForm({ ...form, cargo: e.currentTarget.value })}
-            />
-
-            <TextInput
-              label="Referencia del Documento de Designación"
-              placeholder="ej. Memorando RRHH N° 045/2026"
-              required
-              value={form.documentoDesignacion}
-              onChange={(e) => setForm({ ...form, documentoDesignacion: e.currentTarget.value })}
-            />
-
-            <TextInput
-              label="Fecha de Designación"
-              type="date"
-              required
-              value={form.fechaDesignacion}
-              onChange={(e) => setForm({ ...form, fechaDesignacion: e.currentTarget.value })}
-            />
-
-            <Group justify="flex-end" mt="md">
-              <Button variant="default" onClick={close} disabled={isSubmitting}>
-                Cancelar
-              </Button>
-              <Button type="submit" color="cpsTeal" loading={isSubmitting}>
-                Guardar Responsable
-              </Button>
-            </Group>
-          </Stack>
-        </form>
-      </Modal>
     </Stack>
   );
 };

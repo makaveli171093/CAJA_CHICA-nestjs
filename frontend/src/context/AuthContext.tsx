@@ -2,15 +2,20 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User, Unit } from '../types';
 import { api } from '../services/api';
 
+export type UnitsStatus = 'loading' | 'success' | 'empty' | 'no_permission' | 'error';
+
 interface AuthContextType {
   user: User | null;
   activeUnitId: string | null;
   activeUnit: Unit | null;
+  accessibleUnits: Unit[];
+  unitsStatus: UnitsStatus;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   setActiveUnitId: (unitId: string | null) => void;
   refreshUser: () => Promise<void>;
+  reloadUnits: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -18,15 +23,51 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [activeUnitId, setActiveUnitIdState] = useState<string | null>(null);
+  const [accessibleUnits, setAccessibleUnits] = useState<Unit[]>([]);
+  const [unitsStatus, setUnitsStatus] = useState<UnitsStatus>('loading');
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const determineActiveUnit = (userData: User, currentUnitId: string | null): string | null => {
-    if (userData.unidades && userData.unidades.length > 0) {
-      const exists = userData.unidades.some((u) => u.id === currentUnitId);
+  const determineActiveUnit = (units: Unit[], currentUnitId: string | null): string | null => {
+    if (units.length === 1) {
+      return units[0].id;
+    }
+    if (units.length > 1) {
+      const exists = units.some((u) => u.id === currentUnitId);
       if (exists) return currentUnitId;
-      return userData.unidades[0].id;
+      return units[0].id;
     }
     return null;
+  };
+
+  const resolveUnits = async (userData: User, currentActiveId: string | null) => {
+    let units: Unit[] = userData.unidades || [];
+
+    // Si es administrador y no vinieron unidades o se requiere refrescar catálogo institucional
+    if (userData.rol === 'ADMINISTRADOR') {
+      try {
+        const res = await api.get<{ items: Unit[] }>('/unidades?activo=true&limit=100');
+        if (res.data?.items) {
+          units = res.data.items;
+        }
+      } catch {
+        // En caso de fallo en la llamada de unidades, se conserva lo que haya en userData
+      }
+    }
+
+    setAccessibleUnits(units);
+
+    if (units.length > 0) {
+      setUnitsStatus('success');
+      const selected = determineActiveUnit(units, currentActiveId);
+      setActiveUnitIdState(selected);
+    } else {
+      setActiveUnitIdState(null);
+      if (userData.rol === 'ADMINISTRADOR') {
+        setUnitsStatus('empty');
+      } else {
+        setUnitsStatus('no_permission');
+      }
+    }
   };
 
   const refreshUser = useCallback(async () => {
@@ -34,28 +75,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await api.get<User>('/auth/me');
       const userData = response.data;
       setUser(userData);
-      setActiveUnitIdState((prev) => determineActiveUnit(userData, prev));
+      await resolveUnits(userData, activeUnitId);
     } catch {
       setUser(null);
+      setAccessibleUnits([]);
       setActiveUnitIdState(null);
+      setUnitsStatus('error');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [activeUnitId]);
+
+  const reloadUnits = async () => {
+    if (!user) return;
+    await resolveUnits(user, activeUnitId);
+  };
 
   useEffect(() => {
     refreshUser();
 
     const handleUnauthorized = () => {
       setUser(null);
+      setAccessibleUnits([]);
       setActiveUnitIdState(null);
+      setUnitsStatus('error');
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
     return () => {
       window.removeEventListener('auth:unauthorized', handleUnauthorized);
     };
-  }, [refreshUser]);
+  }, []);
 
   const login = async (username: string, password: string) => {
     const response = await api.post<{ user: User }>('/auth/login', {
@@ -64,7 +114,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     const userData = response.data.user;
     setUser(userData);
-    setActiveUnitIdState(determineActiveUnit(userData, null));
+    await resolveUnits(userData, null);
   };
 
   const logout = async () => {
@@ -74,7 +124,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Ignorar error al cerrar sesión
     } finally {
       setUser(null);
+      setAccessibleUnits([]);
       setActiveUnitIdState(null);
+      setUnitsStatus('empty');
     }
   };
 
@@ -83,7 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const activeUnit =
-    user?.unidades?.find((u) => u.id === activeUnitId) || null;
+    accessibleUnits.find((u) => u.id === activeUnitId) || null;
 
   return (
     <AuthContext.Provider
@@ -91,11 +143,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         activeUnitId,
         activeUnit,
+        accessibleUnits,
+        unitsStatus,
         isLoading,
         login,
         logout,
         setActiveUnitId,
         refreshUser,
+        reloadUnits,
       }}
     >
       {children}
