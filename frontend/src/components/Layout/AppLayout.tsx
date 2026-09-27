@@ -52,8 +52,18 @@ export const AppLayout: React.FC<{
     { label: 'Inicio (Saldos y Límites)', path: '/dashboard', icon: IconDashboard },
     { label: 'Apertura de Caja', path: '/apertura', icon: IconLockOpen },
     { label: 'Presupuesto por Partida', path: '/presupuestos', icon: IconCoin },
-    { label: 'Responsables de Caja', path: '/responsables', icon: IconUserCheck },
-    { label: 'Unidades Institucionales', path: '/unidades', icon: IconBuildingHospital },
+    {
+      label: 'Responsables de Caja',
+      path: '/responsables',
+      icon: IconUserCheck,
+      adminOnly: true,
+    },
+    {
+      label: 'Unidades Institucionales',
+      path: '/unidades',
+      icon: IconBuildingHospital,
+      adminOnly: true,
+    },
     {
       label: 'Clasificador de Partidas',
       path: '/partidas',

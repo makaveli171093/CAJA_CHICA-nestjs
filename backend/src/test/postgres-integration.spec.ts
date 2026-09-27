@@ -700,6 +700,367 @@ describe('Pruebas de Integración Reales con PostgreSQL (caja_chica_cps_test)', 
     });
     expect(usuarioRollback).toBeNull();
   });
+
+  it('9. Configuración integral de partidas y presupuestos desde Unidades Institucionales', async () => {
+    const auditService = { log: jest.fn().mockResolvedValue({}) };
+    const unitsService = new UnitsService(prisma as any, auditService as any);
+
+    const adminUser = {
+      id: 'admin-uuid',
+      username: 'admin',
+      rol: RolUsuario.ADMINISTRADOR,
+      unidades: [],
+    };
+
+    const encargadoUser = {
+      id: 'enc-uuid',
+      username: 'encargado',
+      rol: RolUsuario.ENCARGADO,
+      unidades: [],
+    };
+
+    const initialMovimientosCount = await prisma.movimientoEfectivo.count();
+
+    // 1. Crear 2 unidades y 1 partida en la base de prueba
+    const u1 = await prisma.unit.create({
+      data: { codigo: 'CONF-U1', nombre: 'Unidad Config 1', dependencia: 'Central' },
+    });
+    const u2 = await prisma.unit.create({
+      data: { codigo: 'CONF-U2', nombre: 'Unidad Config 2', dependencia: 'Central' },
+    });
+    const p1 = await prisma.partida.create({
+      data: { codigo: '99100', descripcion: 'Partida Test Configuración' },
+    });
+
+    // 2. Habilitar la partida y asignarle presupuesto desde la unidad 1 (Gestión 2026: 5000.00)
+    const res1 = await unitsService.savePartidasPresupuestos(
+      u1.id,
+      {
+        gestion: 2026,
+        items: [
+          {
+            partidaId: p1.id,
+            habilitado: true,
+            montoAsignado: '5000.00',
+            motivo: 'Asignación U1 2026',
+          },
+        ],
+      },
+      adminUser as any,
+    );
+
+    expect(res1.partidasHabilitadas).toBe(1);
+    expect(res1.partidasConPresupuesto).toBe(1);
+    expect(res1.totalPresupuestado).toBe('5000.00');
+
+    // 3. Asignar un monto DISTINTO a la misma partida en Unidad 2 (Gestión 2026: 8500.50)
+    const res2 = await unitsService.savePartidasPresupuestos(
+      u2.id,
+      {
+        gestion: 2026,
+        items: [
+          {
+            partidaId: p1.id,
+            habilitado: true,
+            montoAsignado: '8500.50',
+            motivo: 'Asignación U2 2026',
+          },
+        ],
+      },
+      adminUser as any,
+    );
+
+    expect(res2.totalPresupuestado).toBe('8500.50');
+
+    // Comprobar que en Unidad 1 sigue siendo 5000.00 (Independencia total entre unidades)
+    const checkU1 = await unitsService.getPartidasConPresupuesto(u1.id, 2026, adminUser as any);
+    const itemU1 = checkU1.items.find((i) => i.partidaId === p1.id);
+    expect(itemU1?.montoAsignado).toBe('5000.00');
+    expect(itemU1?.habilitado).toBe(true);
+
+    // 4. Modificar el monto en Unidad 1 (Gestión 2026: 6200.00) sin afectar Unidad 2 ni otra gestión (Gestión 2025)
+    // Asignar también en Gestión 2025 para Unidad 1: 3000.00
+    await unitsService.savePartidasPresupuestos(
+      u1.id,
+      {
+        gestion: 2025,
+        items: [
+          {
+            partidaId: p1.id,
+            habilitado: true,
+            montoAsignado: '3000.00',
+            motivo: 'Asignación U1 2025',
+          },
+        ],
+      },
+      adminUser as any,
+    );
+
+    // Ajustar Gestión 2026 en Unidad 1:
+    await unitsService.savePartidasPresupuestos(
+      u1.id,
+      {
+        gestion: 2026,
+        items: [
+          {
+            partidaId: p1.id,
+            habilitado: true,
+            montoAsignado: '6200.00',
+            motivo: 'Reasignación aprobada',
+          },
+        ],
+      },
+      adminUser as any,
+    );
+
+    // Comprobar Gestión 2026 en U1 actualizada a 6200.00
+    const checkU1_2026 = await unitsService.getPartidasConPresupuesto(u1.id, 2026, adminUser as any);
+    expect(checkU1_2026.items.find((i) => i.partidaId === p1.id)?.montoAsignado).toBe('6200.00');
+
+    // Comprobar que Gestión 2025 en U1 sigue siendo 3000.00
+    const checkU1_2025 = await unitsService.getPartidasConPresupuesto(u1.id, 2025, adminUser as any);
+    expect(checkU1_2025.items.find((i) => i.partidaId === p1.id)?.montoAsignado).toBe('3000.00');
+
+    // Comprobar que Unidad 2 en Gestión 2026 sigue intacta en 8500.50
+    const checkU2_2026 = await unitsService.getPartidasConPresupuesto(u2.id, 2026, adminUser as any);
+    expect(checkU2_2026.items.find((i) => i.partidaId === p1.id)?.montoAsignado).toBe('8500.50');
+
+    // 5. Comprobar que NO se crearon movimientos de efectivo
+    const movimientosCount = await prisma.movimientoEfectivo.count();
+    expect(movimientosCount).toBe(initialMovimientosCount);
+
+    // 6. Deshabilitar la partida en Unidad 1 NO elimina su presupuesto ni historial
+    await unitsService.savePartidasPresupuestos(
+      u1.id,
+      {
+        gestion: 2026,
+        items: [
+          {
+            partidaId: p1.id,
+            habilitado: false,
+          },
+        ],
+      },
+      adminUser as any,
+    );
+
+    const checkU1_deshabilitada = await unitsService.getPartidasConPresupuesto(u1.id, 2026, adminUser as any);
+    const itemDeshab = checkU1_deshabilitada.items.find((i) => i.partidaId === p1.id);
+    expect(itemDeshab?.habilitado).toBe(false);
+    expect(itemDeshab?.montoAsignado).toBe('6200.00'); // Presupuesto preservado
+    expect(itemDeshab?.historial?.length).toBeGreaterThan(0); // Historial preservado
+
+    // 7. Validar permisos: Solo el ADMINISTRADOR puede configurar partidas y presupuestos
+    await expect(
+      unitsService.savePartidasPresupuestos(
+        u1.id,
+        {
+          gestion: 2026,
+          items: [{ partidaId: p1.id, habilitado: true }],
+        },
+        encargadoUser as any,
+      ),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('10. Reglas de partidas deshabilitadas, preservación histórica y restricciones ENCARGADO vs ADMINISTRADOR', async () => {
+    const auditService = { log: jest.fn().mockResolvedValue({}) };
+    const unitsService = new UnitsService(prisma as any, auditService as any);
+    const presupuestosService = new PresupuestosService(prisma as any, auditService as any);
+    const responsablesService = new ResponsablesService(prisma as any, auditService as any);
+
+    const adminUser = {
+      id: 'admin-uuid-10',
+      username: 'admin10',
+      rol: RolUsuario.ADMINISTRADOR,
+      unidades: [],
+    };
+
+    // Crear unidades U1 y U2
+    const u1 = await prisma.unit.create({
+      data: { codigo: 'REG-U1', nombre: 'Unidad Reglas 1', dependencia: 'Central' },
+    });
+    const u2 = await prisma.unit.create({
+      data: { codigo: 'REG-U2', nombre: 'Unidad Reglas 2', dependencia: 'Central' },
+    });
+
+    const encargadoU1 = {
+      id: 'enc-u1-uuid',
+      username: 'encargado_u1',
+      rol: RolUsuario.ENCARGADO,
+      unidades: [u1.id],
+    };
+
+    // Crear partida pTest
+    const pTest = await prisma.partida.create({
+      data: { codigo: '99200', descripcion: 'Partida Test Reglas Deshabilitada' },
+    });
+
+    // 1. Partida deshabilitada: rechaza nueva asignación por API
+    await expect(
+      presupuestosService.create(
+        {
+          unidadId: u1.id,
+          partidaId: pTest.id,
+          gestion: 2026,
+          montoAsignado: '1000.00',
+        },
+        adminUser as any,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      unitsService.savePartidasPresupuestos(
+        u1.id,
+        {
+          gestion: 2026,
+          items: [{ partidaId: pTest.id, habilitado: false, montoAsignado: '1000.00' }],
+        },
+        adminUser as any,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    // 2. Habilitar y asignar en un solo guardado: permitido
+    const saveSingleRes = await unitsService.savePartidasPresupuestos(
+      u1.id,
+      {
+        gestion: 2026,
+        items: [
+          {
+            partidaId: pTest.id,
+            habilitado: true,
+            montoAsignado: '4500.00',
+            motivo: 'Asignación conjunta',
+          },
+        ],
+      },
+      adminUser as any,
+    );
+
+    const itemGuardado = saveSingleRes.items.find((i) => i.partidaId === pTest.id);
+    expect(itemGuardado?.habilitado).toBe(true);
+    expect(itemGuardado?.montoAsignado).toBe('4500.00');
+    expect(saveSingleRes.totalPresupuestoHabilitado).toBe('4500.00');
+
+    // 3. Deshabilitar con presupuesto previo: preserva historial y presupuesto intacto
+    await unitsService.savePartidasPresupuestos(
+      u1.id,
+      {
+        gestion: 2026,
+        items: [{ partidaId: pTest.id, habilitado: false }],
+      },
+      adminUser as any,
+    );
+
+    const getPresDeshab = await unitsService.getPartidasConPresupuesto(u1.id, 2026, adminUser as any);
+    const itemDeshab = getPresDeshab.items.find((i) => i.partidaId === pTest.id);
+    expect(itemDeshab?.habilitado).toBe(false);
+    expect(itemDeshab?.montoAsignado).toBe('4500.00');
+    expect(itemDeshab?.historial?.length).toBeGreaterThan(0);
+    expect(getPresDeshab.totalPresupuestoHabilitado).toBe('0.00');
+    expect(getPresDeshab.totalPresupuestoDeshabilitado).toBe('4500.00');
+
+    // 4. Partida deshabilitada: rechaza modificación por API
+    await expect(
+      unitsService.savePartidasPresupuestos(
+        u1.id,
+        {
+          gestion: 2026,
+          items: [{ partidaId: pTest.id, montoAsignado: '9000.00' }],
+        },
+        adminUser as any,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    const presPartida = await prisma.presupuestoPartida.findUnique({
+      where: {
+        unidadId_gestion_partidaId: {
+          unidadId: u1.id,
+          gestion: 2026,
+          partidaId: pTest.id,
+        },
+      },
+    });
+
+    await expect(
+      presupuestosService.update(
+        presPartida!.id,
+        { montoAsignado: '9000.00', motivo: 'Intento de ajuste en deshabilitada' },
+        adminUser as any,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    // 5. Encargado: puede consultar su presupuesto pero cualquier modificación devuelve 403
+    const consultaEncargado = await presupuestosService.findAll({
+      unidadId: u1.id,
+      gestion: 2026,
+      currentUser: encargadoU1 as any,
+    });
+    expect(consultaEncargado.items.length).toBeGreaterThan(0);
+
+    const consultaUnitsEncargado = await unitsService.getPartidasConPresupuesto(
+      u1.id,
+      2026,
+      encargadoU1 as any,
+    );
+    expect(consultaUnitsEncargado.items.length).toBeGreaterThan(0);
+
+    // Intentos de modificación por el Encargado -> 403 Forbidden
+    await expect(
+      presupuestosService.create(
+        { unidadId: u1.id, partidaId: pTest.id, gestion: 2026, montoAsignado: '1000.00' },
+        encargadoU1 as any,
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      presupuestosService.update(
+        presPartida!.id,
+        { montoAsignado: '2000.00', motivo: 'Encargado intentando modificar' },
+        encargadoU1 as any,
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      unitsService.savePartidasPresupuestos(
+        u1.id,
+        { gestion: 2026, items: [{ partidaId: pTest.id, habilitado: true }] },
+        encargadoU1 as any,
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      responsablesService.create(
+        {
+          unidadId: u1.id,
+          nombres: 'Intruso',
+          apellidos: 'Intruso',
+          carnetIdentidad: '9999999',
+          cargo: 'Encargado',
+          documentoDesignacion: 'RES-001',
+          fechaDesignacion: '2026-01-01',
+        },
+        encargadoU1 as any,
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    // 6. Encargado: no puede consultar unidades ajenas
+    await expect(
+      presupuestosService.findAll({
+        unidadId: u2.id,
+        gestion: 2026,
+        currentUser: encargadoU1 as any,
+      }),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      unitsService.getPartidasConPresupuesto(u2.id, 2026, encargadoU1 as any),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      unitsService.findOne(u2.id, encargadoU1 as any),
+    ).rejects.toThrow();
+  });
 });
 
 

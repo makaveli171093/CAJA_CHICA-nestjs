@@ -13,7 +13,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { ResponsablesService } from './responsables.service';
 import { CreateResponsableDto, UpdateResponsableDto } from './dto/create-responsable.dto';
 import { JwtAuthGuard, RolesGuard } from '../common/guards';
-import { CurrentUser, AuthenticatedUser } from '../common/decorators';
+import { Roles, CurrentUser, AuthenticatedUser } from '../common/decorators';
+import { RolUsuario } from '@prisma/client';
 
 @ApiTags('Responsables de Caja')
 @ApiBearerAuth()
@@ -23,7 +24,8 @@ export class ResponsablesController {
   constructor(private readonly responsablesService: ResponsablesService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Registrar nuevo responsable de caja institucional' })
+  @Roles(RolUsuario.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Registrar nuevo responsable de caja institucional (Solo Administrador)' })
   @ApiResponse({ status: 201, description: 'Responsable registrado exitosamente.' })
   create(
     @Body() createDto: CreateResponsableDto,
@@ -65,7 +67,8 @@ export class ResponsablesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar información del responsable' })
+  @Roles(RolUsuario.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Actualizar información del responsable (Solo Administrador)' })
   update(
     @Param('id') id: string,
     @Body() updateDto: UpdateResponsableDto,
@@ -75,7 +78,8 @@ export class ResponsablesController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Desactivar responsable de caja (Soft Delete)' })
+  @Roles(RolUsuario.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Desactivar responsable de caja (Soft Delete - Solo Administrador)' })
   deactivate(
     @Param('id') id: string,
     @CurrentUser() currentUser: AuthenticatedUser,

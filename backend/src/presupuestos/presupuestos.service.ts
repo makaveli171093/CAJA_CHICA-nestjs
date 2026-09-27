@@ -29,6 +29,9 @@ export class PresupuestosService {
   }
 
   async create(createDto: CreatePresupuestoDto, currentUser: AuthenticatedUser) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
+      throw new ForbiddenException('Solo el administrador puede asignar presupuestos a partidas.');
+    }
     this.checkUnitPermission(createDto.unidadId, currentUser);
 
     // Validar que la partida presupuestaria esté previamente habilitada para esta unidad institucional
@@ -43,7 +46,7 @@ export class PresupuestosService {
 
     if (!partidaHabilitada || !partidaHabilitada.activo) {
       throw new BadRequestException(
-        'La partida presupuestaria no está habilitada para esta unidad. Solicite al administrador su habilitación previa en el catálogo de la unidad.',
+        'La partida presupuestaria no está habilitada para esta unidad. Habilite la partida antes de asignar presupuesto.',
       );
     }
 
@@ -120,31 +123,47 @@ export class PresupuestosService {
   }) {
     this.checkUnitPermission(params.unidadId, params.currentUser);
 
-    const presupuestos = await this.prisma.presupuestoPartida.findMany({
-      where: {
-        unidadId: params.unidadId,
-        gestion: Number(params.gestion),
-      },
-      include: {
-        partida: true,
-        unidad: true,
-        historial: {
-          orderBy: { fecha: 'desc' },
+    const [presupuestos, asignaciones] = await Promise.all([
+      this.prisma.presupuestoPartida.findMany({
+        where: {
+          unidadId: params.unidadId,
+          gestion: Number(params.gestion),
         },
-      },
-      orderBy: {
-        partida: { codigo: 'asc' },
-      },
-    });
+        include: {
+          partida: true,
+          unidad: true,
+          historial: {
+            orderBy: { fecha: 'desc' },
+          },
+        },
+        orderBy: {
+          partida: { codigo: 'asc' },
+        },
+      }),
+      this.prisma.unidadPartida.findMany({
+        where: { unidadId: params.unidadId },
+      }),
+    ]);
 
-    let totalDecimal = new Decimal('0.00');
+    const mapaHabilitadas = new Map<string, boolean>();
+    asignaciones.forEach((a) => mapaHabilitadas.set(a.partidaId, a.activo));
+
+    let totalHabilitado = new Decimal('0.00');
+    let totalDeshabilitado = new Decimal('0.00');
 
     const formatted = presupuestos.map((item) => {
+      const habilitado = mapaHabilitadas.get(item.partidaId) || false;
       const itemDecimal = new Decimal(item.montoAsignado.toString());
-      totalDecimal = totalDecimal.plus(itemDecimal);
+
+      if (habilitado) {
+        totalHabilitado = totalHabilitado.plus(itemDecimal);
+      } else {
+        totalDeshabilitado = totalDeshabilitado.plus(itemDecimal);
+      }
 
       return {
         ...item,
+        habilitado,
         montoAsignado: item.montoAsignado.toFixed(2),
         historial: item.historial.map((h) => ({
           ...h,
@@ -156,8 +175,12 @@ export class PresupuestosService {
 
     return {
       items: formatted,
-      totalPresupuesto: totalDecimal.toFixed(2),
+      totalPresupuesto: totalHabilitado.toFixed(2),
+      totalPresupuestoHabilitado: totalHabilitado.toFixed(2),
+      totalPresupuestoDeshabilitado: totalDeshabilitado.toFixed(2),
       cantidadPartidas: formatted.length,
+      cantidadPartidasHabilitadas: formatted.filter((i) => i.habilitado).length,
+      cantidadPartidasDeshabilitadas: formatted.filter((i) => !i.habilitado).length,
     };
   }
 
@@ -195,6 +218,10 @@ export class PresupuestosService {
     updateDto: UpdatePresupuestoDto,
     currentUser: AuthenticatedUser,
   ) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
+      throw new ForbiddenException('Solo el administrador puede modificar asignaciones presupuestarias.');
+    }
+
     const item = await this.prisma.presupuestoPartida.findUnique({
       where: { id },
     });
@@ -204,6 +231,22 @@ export class PresupuestosService {
     }
 
     this.checkUnitPermission(item.unidadId, currentUser);
+
+    // Validar que la partida presupuestaria siga habilitada para la unidad
+    const partidaHabilitada = await this.prisma.unidadPartida.findUnique({
+      where: {
+        unidadId_partidaId: {
+          unidadId: item.unidadId,
+          partidaId: item.partidaId,
+        },
+      },
+    });
+
+    if (!partidaHabilitada || !partidaHabilitada.activo) {
+      throw new BadRequestException(
+        'No se puede modificar el presupuesto de una partida deshabilitada para esta unidad. Habilite la partida antes de ajustar su monto.',
+      );
+    }
 
     const montoAnterior = item.montoAsignado;
     const montoNuevo = new Prisma.Decimal(updateDto.montoAsignado);

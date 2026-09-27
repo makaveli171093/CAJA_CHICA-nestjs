@@ -24,6 +24,9 @@ export class ResponsablesService {
   }
 
   async create(createDto: CreateResponsableDto, currentUser: AuthenticatedUser) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
+      throw new ForbiddenException('Solo el administrador puede registrar nuevos responsables de caja.');
+    }
     this.checkUnitPermission(createDto.unidadId, currentUser);
 
     const unit = await this.prisma.unit.findUnique({
@@ -176,6 +179,9 @@ export class ResponsablesService {
     updateDto: UpdateResponsableDto,
     currentUser: AuthenticatedUser,
   ) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
+      throw new ForbiddenException('Solo el administrador puede modificar información de responsables.');
+    }
     const responsable = await this.prisma.responsable.findUnique({ where: { id } });
     if (!responsable) {
       throw new NotFoundException('Responsable no encontrado.');
@@ -213,6 +219,9 @@ export class ResponsablesService {
   }
 
   async deactivate(id: string, currentUser: AuthenticatedUser) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
+      throw new ForbiddenException('Solo el administrador puede desactivar responsables.');
+    }
     const responsable = await this.prisma.responsable.findUnique({ where: { id } });
     if (!responsable) {
       throw new NotFoundException('Responsable no encontrado.');

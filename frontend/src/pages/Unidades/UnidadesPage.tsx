@@ -26,13 +26,15 @@ import {
   IconListCheck,
   IconAlertCircle,
   IconCheck,
+  IconCoins,
 } from '@tabler/icons-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { Unit, PartidaHabilitada, PendientePresupuesto } from '../../types';
+import { PartidasPresupuestosModal } from '../../components/Presupuestos/PartidasPresupuestosModal';
 
 export const UnidadesPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, reloadUnits } = useAuth();
   const [unidades, setUnidades] = useState<Unit[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -42,6 +44,11 @@ export const UnidadesPage: React.FC = () => {
   // Modal Crear Unidad
   const [opened, { open, close }] = useDisclosure(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Modal Partidas y Presupuestos (Completo)
+  const [configModalOpened, { open: openConfigModal, close: closeConfigModal }] =
+    useDisclosure(false);
+  const [configUnit, setConfigUnit] = useState<Unit | null>(null);
 
   // Modal Partidas Habilitadas
   const [partidasModalOpened, { open: openPartidasModal, close: closePartidasModal }] =
@@ -86,7 +93,7 @@ export const UnidadesPage: React.FC = () => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await api.post('/unidades', form);
+      const res = await api.post('/unidades', form);
       notifications.show({
         title: 'Unidad Creada',
         message: 'La unidad institucional fue registrada satisfactoriamente.',
@@ -95,6 +102,7 @@ export const UnidadesPage: React.FC = () => {
       close();
       setForm({ codigo: '', nombre: '', dependencia: '' });
       fetchData();
+      await reloadUnits(res.data?.id);
     } catch (err: any) {
       notifications.show({
         title: 'Error al crear',
@@ -115,6 +123,7 @@ export const UnidadesPage: React.FC = () => {
         color: 'teal',
       });
       fetchData();
+      await reloadUnits();
     } catch (err: any) {
       notifications.show({
         title: 'Error',
@@ -124,7 +133,13 @@ export const UnidadesPage: React.FC = () => {
     }
   };
 
-  // Abrir gestión de partidas habilitadas
+  // Abrir configuración integral de partidas y presupuestos
+  const handleOpenPartidasPresupuestos = (unit: Unit) => {
+    setConfigUnit(unit);
+    openConfigModal();
+  };
+
+  // Abrir gestión rápida de partidas habilitadas
   const handleOpenPartidas = async (unit: Unit) => {
     setSelectedUnit(unit);
     setPartidaSearch('');
@@ -264,12 +279,21 @@ export const UnidadesPage: React.FC = () => {
                       <Group gap="xs" justify="center">
                         <Button
                           size="xs"
-                          variant="light"
+                          variant="filled"
                           color="cpsTeal"
+                          leftSection={<IconCoins size={14} />}
+                          onClick={() => handleOpenPartidasPresupuestos(u)}
+                        >
+                          Partidas y presupuestos
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          color="gray"
                           leftSection={<IconListCheck size={14} />}
                           onClick={() => handleOpenPartidas(u)}
                         >
-                          Partidas habilitadas
+                          Habilitación rápida
                         </Button>
                         {isAdmin && u.activo && (
                           <Button
@@ -467,6 +491,17 @@ export const UnidadesPage: React.FC = () => {
           </Group>
         </Stack>
       </Modal>
+
+      {/* Modal Integral de Partidas y Presupuestos por Unidad */}
+      <PartidasPresupuestosModal
+        opened={configModalOpened}
+        onClose={closeConfigModal}
+        unit={configUnit}
+        onSaved={() => {
+          fetchData();
+          reloadUnits();
+        }}
+      />
     </Stack>
   );
 };

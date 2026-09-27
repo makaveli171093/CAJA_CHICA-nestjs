@@ -27,21 +27,27 @@ import {
   IconAlertCircle,
   IconBuilding,
   IconListCheck,
+  IconCoins,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { PresupuestoPartida, Partida } from '../../types';
+import { PartidasPresupuestosModal } from '../../components/Presupuestos/PartidasPresupuestosModal';
 
 export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ currentGestion }) => {
-  const { activeUnitId, activeUnit, user } = useAuth();
+  const { activeUnitId, activeUnit, accessibleUnits, setActiveUnitId, user } = useAuth();
   const [presupuestos, setPresupuestos] = useState<PresupuestoPartida[]>([]);
   const [partidasDisponibles, setPartidasDisponibles] = useState<Partida[]>([]);
   const [totalPresupuesto, setTotalPresupuesto] = useState('0.00');
+  const [totalPresupuestoDeshabilitado, setTotalPresupuestoDeshabilitado] = useState('0.00');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const isAdmin = user?.rol === 'ADMINISTRADOR';
+
+  // Modal Integral de Partidas y Presupuestos
+  const [configModalOpened, setConfigModalOpened] = useState(false);
 
   // Modals
   const [newModalOpened, { open: openNewModal, close: closeNewModal }] = useDisclosure(false);
@@ -61,6 +67,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
       setPresupuestos([]);
       setPartidasDisponibles([]);
       setTotalPresupuesto('0.00');
+      setTotalPresupuestoDeshabilitado('0.00');
       return;
     }
 
@@ -71,16 +78,22 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
 
     try {
       const [resPresupuestos, resPartidas] = await Promise.all([
-        api.get<{ items: PresupuestoPartida[]; totalPresupuesto: string }>(
-          `/presupuestos?unidadId=${activeUnitId}&gestion=${currentGestion}`,
-        ),
+        api.get<{
+          items: PresupuestoPartida[];
+          totalPresupuesto: string;
+          totalPresupuestoHabilitado?: string;
+          totalPresupuestoDeshabilitado?: string;
+        }>(`/presupuestos?unidadId=${activeUnitId}&gestion=${currentGestion}`),
         api.get<{ items: Partida[] }>(
           `/partidas?activo=true&unidadId=${activeUnitId}&limit=100`,
         ),
       ]);
 
       setPresupuestos(resPresupuestos.data.items);
-      setTotalPresupuesto(resPresupuestos.data.totalPresupuesto);
+      setTotalPresupuesto(
+        resPresupuestos.data.totalPresupuestoHabilitado || resPresupuestos.data.totalPresupuesto || '0.00',
+      );
+      setTotalPresupuestoDeshabilitado(resPresupuestos.data.totalPresupuestoDeshabilitado || '0.00');
       setPartidasDisponibles(resPartidas.data.items);
     } catch (err: any) {
       notifications.show({
@@ -176,27 +189,44 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
 
   // Si no hay unidad activa seleccionada
   if (!activeUnitId) {
+    const hasUnits = accessibleUnits.length > 0;
     return (
       <Paper p="xl" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
         <Stack align="center" gap="md" py="xl">
-          <ThemeIcon size={56} radius="xl" color="gray" variant="light">
+          <ThemeIcon size={56} radius="xl" color="teal" variant="light">
             <IconBuilding size={32} />
           </ThemeIcon>
           <Title order={3} c="#1e293b" ta="center">
-            Sin unidad seleccionada
+            Seleccione una Unidad Institucional
           </Title>
           <Text size="sm" c="dimmed" ta="center" maw={520}>
-            Para consultar, registrar o ajustar presupuestos por partida, seleccione una unidad institucional activa en el selector de la barra superior.
+            {hasUnits
+              ? `Seleccione la unidad institucional activa para consultar, registrar o ajustar presupuestos por partida en la gestión ${currentGestion}.`
+              : 'No existen unidades institucionales registradas o no tiene unidades asignadas para operar.'}
           </Text>
-          {isAdmin && (
+          {hasUnits ? (
+            <Select
+              placeholder="Seleccione una unidad institucional..."
+              data={accessibleUnits.map((u) => ({
+                value: u.id,
+                label: `[${u.codigo}] ${u.nombre}`,
+              }))}
+              value={activeUnitId}
+              onChange={(val) => setActiveUnitId(val)}
+              size="md"
+              w={{ base: 280, sm: 380 }}
+              allowDeselect={false}
+              comboboxProps={{ shadow: 'md' }}
+            />
+          ) : isAdmin ? (
             <Button
               variant="outline"
               color="cpsTeal"
               onClick={() => navigate('/unidades')}
             >
-              Gestionar Unidades Institucionales
+              Registrar Unidades Institucionales
             </Button>
-          )}
+          ) : null}
         </Stack>
       </Paper>
     );
@@ -215,21 +245,25 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
             </Text>
           </Box>
           <Group gap="sm">
-            {partidasDisponibles.length > 0 ? (
-              <Button color="cpsTeal" leftSection={<IconPlus size={16} />} onClick={openNewModal}>
-                Asignar Partida
+            {isAdmin && (
+              <Button
+                color="cpsTeal"
+                variant="filled"
+                leftSection={<IconCoins size={16} />}
+                onClick={() => setConfigModalOpened(true)}
+              >
+                Partidas y presupuestos
               </Button>
-            ) : (
-              isAdmin && (
-                <Button
-                  color="cpsTeal"
-                  variant="light"
-                  leftSection={<IconListCheck size={16} />}
-                  onClick={() => navigate('/unidades')}
-                >
-                  Habilitar Partidas en Unidades
-                </Button>
-              )
+            )}
+            {isAdmin && partidasDisponibles.length > 0 && (
+              <Button
+                color="cpsTeal"
+                variant="light"
+                leftSection={<IconPlus size={16} />}
+                onClick={openNewModal}
+              >
+                Asignación Rápida
+              </Button>
             )}
           </Group>
         </Group>
@@ -243,38 +277,65 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
           color="orange"
           variant="light"
         >
-          <Text size="sm">
-            Esta unidad institucional no cuenta con partidas presupuestarias habilitadas en su catálogo.
-            La habilitación de partidas es una dimensión institucional independiente de la asignación de fondos.
-          </Text>
-          {isAdmin && (
-            <Button
-              size="xs"
-              color="orange"
-              variant="outline"
-              mt="xs"
-              onClick={() => navigate('/unidades')}
-            >
-              Configurar Partidas Habilitadas en Unidades &rarr;
-            </Button>
+          {isAdmin ? (
+            <>
+              <Text size="sm">
+                Esta unidad institucional no cuenta con partidas presupuestarias habilitadas en su catálogo.
+                Puede habilitar partidas y asignarles su presupuesto directamente sin salir de este módulo:
+              </Text>
+              <Button
+                size="xs"
+                color="orange"
+                variant="filled"
+                leftSection={<IconCoins size={14} />}
+                mt="xs"
+                onClick={() => setConfigModalOpened(true)}
+              >
+                Configurar Partidas y Presupuestos &rarr;
+              </Button>
+            </>
+          ) : (
+            <Text size="sm">
+              Esta unidad institucional no cuenta con partidas presupuestarias habilitadas en su catálogo.
+              Por favor solicite la habilitación y asignación presupuestaria al Administrador del Sistema.
+            </Text>
           )}
         </Alert>
       )}
 
       {/* Resumen Total */}
       <Paper p="md" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
-        <Group justify="space-between">
-          <Box>
-            <Text size="xs" c="dimmed" fw={700}>
-              TOTAL PRESUPUESTADO GESTIÓN {currentGestion}
-            </Text>
-            <Title order={2} c="#007B6D" mt={4}>
-              Bs. {totalPresupuesto}
-            </Title>
-          </Box>
-          <Badge size="lg" color="cpsTeal" variant="light">
-            {presupuestos.length} partidas asignadas
-          </Badge>
+        <Group justify="space-between" wrap="wrap" gap="md">
+          <Group gap="xl">
+            <Box>
+              <Text size="xs" c="dimmed" fw={700}>
+                TOTAL PRESUPUESTO HABILITADO (ACTIVO) GESTIÓN {currentGestion}
+              </Text>
+              <Title order={2} c="#007B6D" mt={4}>
+                Bs. {totalPresupuesto}
+              </Title>
+            </Box>
+            {parseFloat(totalPresupuestoDeshabilitado) > 0 && (
+              <Box>
+                <Text size="xs" c="dimmed" fw={700}>
+                  HISTÓRICO EN PARTIDAS DESHABILITADAS
+                </Text>
+                <Text size="md" fw={700} c="dimmed" mt={4}>
+                  Bs. {totalPresupuestoDeshabilitado}
+                </Text>
+              </Box>
+            )}
+          </Group>
+          <Group gap="xs">
+            <Badge size="lg" color="cpsTeal" variant="light">
+              {presupuestos.filter((p) => p.habilitado !== false).length} habilitadas
+            </Badge>
+            {presupuestos.some((p) => p.habilitado === false) && (
+              <Badge size="lg" color="gray" variant="outline">
+                {presupuestos.filter((p) => p.habilitado === false).length} deshabilitadas (conservadas)
+              </Badge>
+            )}
+          </Group>
         </Group>
       </Paper>
 
@@ -288,35 +349,62 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
           <Table striped highlightOnHover withTableBorder>
             <Table.Thead>
               <Table.Tr style={{ backgroundColor: '#f1f5f9' }}>
-                <Table.Th style={{ width: 140 }}>Código Partida</Table.Th>
+                <Table.Th style={{ width: 130 }}>Código Partida</Table.Th>
                 <Table.Th>Descripción Oficial</Table.Th>
+                <Table.Th style={{ width: 160, textAlign: 'center' }}>Estado Catálogo</Table.Th>
                 <Table.Th style={{ width: 180, textAlign: 'right' }}>Monto Asignado (Bs.)</Table.Th>
                 <Table.Th style={{ width: 140, textAlign: 'center' }}>Acciones</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {presupuestos.map((item) => (
-                <Table.Tr key={item.id}>
+                <Table.Tr
+                  key={item.id}
+                  style={{
+                    backgroundColor: item.habilitado === false ? '#f8fafc' : undefined,
+                  }}
+                >
                   <Table.Td>
-                    <Badge color="cpsTeal" variant="outline">
+                    <Badge color={item.habilitado === false ? 'gray' : 'cpsTeal'} variant="outline">
                       {item.partida?.codigo}
                     </Badge>
                   </Table.Td>
-                  <Table.Td style={{ fontWeight: 500 }}>{item.partida?.descripcion}</Table.Td>
-                  <Table.Td style={{ textAlign: 'right', fontWeight: 700, color: '#007B6D' }}>
+                  <Table.Td style={{ fontWeight: 500, color: item.habilitado === false ? '#64748b' : undefined }}>
+                    {item.partida?.descripcion}
+                  </Table.Td>
+                  <Table.Td style={{ textAlign: 'center' }}>
+                    {item.habilitado === false ? (
+                      <Badge color="gray" variant="outline" size="sm">
+                        Histórico / Inactiva
+                      </Badge>
+                    ) : (
+                      <Badge color="teal" variant="light" size="sm">
+                        Habilitada
+                      </Badge>
+                    )}
+                  </Table.Td>
+                  <Table.Td
+                    style={{
+                      textAlign: 'right',
+                      fontWeight: 700,
+                      color: item.habilitado === false ? '#64748b' : '#007B6D',
+                    }}
+                  >
                     Bs. {item.montoAsignado}
                   </Table.Td>
                   <Table.Td style={{ textAlign: 'center' }}>
                     <Group gap="xs" justify="center">
-                      <Button
-                        size="xs"
-                        variant="subtle"
-                        color="blue"
-                        leftSection={<IconEdit size={14} />}
-                        onClick={() => openEdit(item)}
-                      >
-                        Ajustar
-                      </Button>
+                      {isAdmin && item.habilitado !== false && (
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          color="blue"
+                          leftSection={<IconEdit size={14} />}
+                          onClick={() => openEdit(item)}
+                        >
+                          Ajustar
+                        </Button>
+                      )}
                       <Button
                         size="xs"
                         variant="subtle"
@@ -473,6 +561,15 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
           </Group>
         </Stack>
       </Modal>
+
+      {/* Modal Integral de Partidas y Presupuestos */}
+      <PartidasPresupuestosModal
+        opened={configModalOpened}
+        onClose={() => setConfigModalOpened(false)}
+        unit={activeUnit}
+        initialGestion={currentGestion}
+        onSaved={fetchData}
+      />
     </Stack>
   );
 };

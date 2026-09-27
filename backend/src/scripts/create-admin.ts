@@ -28,6 +28,126 @@ const prisma = new PrismaClient({
   },
 });
 
+export interface AdminInputs {
+  username: string;
+  nombreCompleto: string;
+  email: string;
+  password: string;
+}
+
+export interface CollectAdminInputsOptions {
+  initialValues?: Partial<AdminInputs>;
+  exitOnCancel?: boolean;
+}
+
+export async function collectAdminInputs(
+  options: CollectAdminInputsOptions = {},
+): Promise<AdminInputs | null> {
+  const { initialValues = {}, exitOnCancel = true } = options;
+  let username = initialValues.username || '';
+  let nombreCompleto = initialValues.nombreCompleto || '';
+  let email = initialValues.email || '';
+  let password = initialValues.password || '';
+
+  const handleCancel = () => {
+    console.log('\n\nOperación cancelada por el usuario.\n');
+    if (exitOnCancel) {
+      process.exit(0);
+    }
+    return false;
+  };
+
+  const initialQuestions: any[] = [];
+
+  if (!username) {
+    initialQuestions.push({
+      type: 'text',
+      name: 'username',
+      message: 'Ingrese el nombre de usuario (ej. admin):',
+      validate: (val: string) => (val && val.trim().length > 0 ? true : 'El nombre de usuario no puede estar vacío.'),
+    });
+  }
+
+  if (!nombreCompleto) {
+    initialQuestions.push({
+      type: 'text',
+      name: 'nombreCompleto',
+      message: 'Ingrese el nombre completo del administrador:',
+      validate: (val: string) => (val && val.trim().length > 0 ? true : 'El nombre completo no puede estar vacío.'),
+    });
+  }
+
+  if (!email) {
+    initialQuestions.push({
+      type: 'text',
+      name: 'email',
+      message: 'Ingrese correo electrónico institucional (opcional):',
+    });
+  }
+
+  if (initialQuestions.length > 0) {
+    const answers = await prompts(initialQuestions, {
+      onCancel: handleCancel,
+    });
+
+    if (answers.username === undefined && !username) {
+      return null;
+    }
+
+    username = username || (answers.username ? answers.username.trim() : '');
+    nombreCompleto = nombreCompleto || (answers.nombreCompleto ? answers.nombreCompleto.trim() : '');
+    email = email || (answers.email ? answers.email.trim() : '');
+  }
+
+  if (!username || !nombreCompleto) {
+    console.log('\nOperación incompleta. Cancelando sin realizar cambios.');
+    return null;
+  }
+
+  if (password) {
+    if (password.length < 6) {
+      console.error('\nLa contraseña proporcionada debe tener al menos 6 caracteres.\n');
+      return null;
+    }
+  } else {
+    while (true) {
+      const passwordAnswers = await prompts(
+        [
+          {
+            type: 'password',
+            name: 'password',
+            message: 'Ingrese la contraseña para el administrador:',
+            validate: (val: string) =>
+              val && val.length >= 6 ? true : 'La contraseña debe tener al menos 6 caracteres.',
+          },
+          {
+            type: 'password',
+            name: 'confirmPassword',
+            message: 'Confirme la contraseña:',
+          },
+        ],
+        {
+          onCancel: handleCancel,
+        },
+      );
+
+      if (passwordAnswers.password === undefined || passwordAnswers.confirmPassword === undefined) {
+        return null;
+      }
+
+      if (passwordAnswers.password !== passwordAnswers.confirmPassword) {
+        console.log('\nLas contraseñas no coinciden. Por favor, intente nuevamente.\n');
+        continue;
+      }
+
+      password = passwordAnswers.password;
+      break;
+    }
+  }
+
+  return { username, nombreCompleto, email, password };
+}
+
 async function main() {
   console.log('================================================================');
   console.log(' CAJA PETROLERA DE SALUD - CREACIÓN DE ADMINISTRADOR INICIAL    ');
@@ -51,80 +171,33 @@ async function main() {
 
   try {
     const args = process.argv.slice(2);
-    let username = '';
-    let nombreCompleto = '';
-    let email = '';
-    let password = '';
+    let argUsername = '';
+    let argNombreCompleto = '';
+    let argEmail = '';
+    let argPassword = '';
 
     for (let i = 0; i < args.length; i++) {
-      if (args[i] === '--username' && args[i + 1]) username = args[i + 1];
-      if (args[i] === '--name' && args[i + 1]) nombreCompleto = args[i + 1];
-      if (args[i] === '--email' && args[i + 1]) email = args[i + 1];
-      if (args[i] === '--password' && args[i + 1]) password = args[i + 1];
+      if (args[i] === '--username' && args[i + 1]) argUsername = args[i + 1];
+      if (args[i] === '--name' && args[i + 1]) argNombreCompleto = args[i + 1];
+      if (args[i] === '--email' && args[i + 1]) argEmail = args[i + 1];
+      if (args[i] === '--password' && args[i + 1]) argPassword = args[i + 1];
     }
 
-    const questions: any[] = [];
-
-    if (!username) {
-      questions.push({
-        type: 'text',
-        name: 'username',
-        message: 'Ingrese el nombre de usuario (ej. admin):',
-        validate: (val: string) => (val && val.trim().length > 0 ? true : 'El nombre de usuario no puede estar vacío.'),
-      });
-    }
-
-    if (!nombreCompleto) {
-      questions.push({
-        type: 'text',
-        name: 'nombreCompleto',
-        message: 'Ingrese el nombre completo del administrador:',
-        validate: (val: string) => (val && val.trim().length > 0 ? true : 'El nombre completo no puede estar vacío.'),
-      });
-    }
-
-    if (!email) {
-      questions.push({
-        type: 'text',
-        name: 'email',
-        message: 'Ingrese correo electrónico institucional (opcional):',
-      });
-    }
-
-    if (!password) {
-      questions.push({
-        type: 'password',
-        name: 'password',
-        message: 'Ingrese la contraseña para el administrador:',
-        validate: (val: string) => (val && val.length >= 6 ? true : 'La contraseña debe tener al menos 6 caracteres.'),
-      });
-
-      questions.push({
-        type: 'password',
-        name: 'confirmPassword',
-        message: 'Confirme la contraseña:',
-        validate: (val: string, answers: any) =>
-          val === answers.password ? true : 'Las contraseñas no coinciden.',
-      });
-    }
-
-    const answers = await prompts(questions, {
-      onCancel: () => {
-        console.log('\n\nOperación cancelada por el usuario.\n');
-        process.exit(0);
+    const inputs = await collectAdminInputs({
+      initialValues: {
+        username: argUsername,
+        nombreCompleto: argNombreCompleto,
+        email: argEmail,
+        password: argPassword,
       },
+      exitOnCancel: true,
     });
 
-    // Consolidar valores ingresados
-    username = username || (answers.username ? answers.username.trim() : '');
-    nombreCompleto = nombreCompleto || (answers.nombreCompleto ? answers.nombreCompleto.trim() : '');
-    email = email || (answers.email ? answers.email.trim() : '');
-    password = password || answers.password;
-
-    if (!username || !nombreCompleto || !password) {
-      console.log('\nOperación incompleta. Cancelando sin realizar cambios.');
+    if (!inputs) {
       return;
     }
+
+    const { username, nombreCompleto, email, password } = inputs;
 
     const existing = await prisma.user.findUnique({
       where: { username },
@@ -228,4 +301,6 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}

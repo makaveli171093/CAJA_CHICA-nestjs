@@ -3,10 +3,14 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateUnitDto, UpdateUnitDto } from './dto/create-unit.dto';
+import { SavePartidasPresupuestosDto } from './dto/save-partidas-presupuestos.dto';
 import { AuthenticatedUser } from '../common/decorators';
 import { RolUsuario } from '@prisma/client';
 
@@ -340,5 +344,289 @@ export class UnitsService {
     }
 
     return Array.from(pendientesMap.values());
+  }
+
+  async getPartidasConPresupuesto(
+    unidadId: string,
+    gestion: number,
+    currentUser: AuthenticatedUser,
+  ) {
+    if (
+      currentUser.rol === RolUsuario.ENCARGADO &&
+      !currentUser.unidades.includes(unidadId)
+    ) {
+      throw new ForbiddenException('No tiene permisos para consultar datos de esta unidad.');
+    }
+
+    const unit = await this.prisma.unit.findUnique({
+      where: { id: unidadId },
+      select: { id: true, codigo: true, nombre: true, dependencia: true, activo: true },
+    });
+
+    if (!unit) {
+      throw new NotFoundException('Unidad institucional no encontrada.');
+    }
+
+    const numGestion = Number(gestion) || new Date().getFullYear();
+
+    const [todasPartidas, asignaciones, presupuestos] = await Promise.all([
+      this.prisma.partida.findMany({
+        where: { activo: true },
+        orderBy: { codigo: 'asc' },
+      }),
+      this.prisma.unidadPartida.findMany({
+        where: { unidadId },
+      }),
+      this.prisma.presupuestoPartida.findMany({
+        where: { unidadId, gestion: numGestion },
+        include: {
+          historial: {
+            orderBy: { fecha: 'desc' },
+            take: 5,
+          },
+        },
+      }),
+    ]);
+
+    const mapaHabilitadas = new Map<string, boolean>();
+    asignaciones.forEach((a) => mapaHabilitadas.set(a.partidaId, a.activo));
+
+    const mapaPresupuestos = new Map<string, any>();
+    presupuestos.forEach((p) => mapaPresupuestos.set(p.partidaId, p));
+
+    let totalHabilitado = new Decimal('0.00');
+    let totalDeshabilitado = new Decimal('0.00');
+
+    const items = todasPartidas.map((p) => {
+      const pres = mapaPresupuestos.get(p.id);
+      const habilitado = mapaHabilitadas.get(p.id) || false;
+
+      let montoAsignado: string | null = null;
+      let presupuestoId: string | null = null;
+
+      if (pres) {
+        presupuestoId = pres.id;
+        montoAsignado = pres.montoAsignado.toFixed(2);
+        if (habilitado) {
+          totalHabilitado = totalHabilitado.plus(new Decimal(pres.montoAsignado.toString()));
+        } else {
+          totalDeshabilitado = totalDeshabilitado.plus(new Decimal(pres.montoAsignado.toString()));
+        }
+      }
+
+      return {
+        partidaId: p.id,
+        codigo: p.codigo,
+        descripcion: p.descripcion,
+        habilitado,
+        presupuestoId,
+        montoAsignado,
+        historial: pres
+          ? pres.historial.map((h: any) => ({
+              ...h,
+              montoAnterior: h.montoAnterior.toFixed(2),
+              montoNuevo: h.montoNuevo.toFixed(2),
+            }))
+          : [],
+      };
+    });
+
+    return {
+      unidad: unit,
+      gestion: numGestion,
+      items,
+      totalPresupuestado: totalHabilitado.toFixed(2),
+      totalPresupuestoHabilitado: totalHabilitado.toFixed(2),
+      totalPresupuestoDeshabilitado: totalDeshabilitado.toFixed(2),
+      partidasHabilitadas: items.filter((i) => i.habilitado).length,
+      partidasConPresupuesto: items.filter((i) => i.presupuestoId !== null).length,
+      partidasDeshabilitadasConPresupuesto: items.filter(
+        (i) => !i.habilitado && i.presupuestoId !== null,
+      ).length,
+      totalPartidasCatalogo: items.length,
+    };
+  }
+
+  async savePartidasPresupuestos(
+    unidadId: string,
+    dto: SavePartidasPresupuestosDto,
+    currentUser: AuthenticatedUser,
+  ) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
+      throw new ForbiddenException('Solo el administrador puede configurar partidas y presupuestos.');
+    }
+
+    const unit = await this.prisma.unit.findUnique({ where: { id: unidadId } });
+    if (!unit) {
+      throw new NotFoundException('Unidad institucional no encontrada.');
+    }
+
+    const numGestion = Number(dto.gestion);
+    if (!numGestion || numGestion < 2020 || numGestion > 2100) {
+      throw new BadRequestException('Gestión fiscal inválida.');
+    }
+
+    // Validar montos monetarios antes de iniciar la transacción
+    for (const item of dto.items) {
+      if (
+        item.montoAsignado !== undefined &&
+        item.montoAsignado !== null &&
+        item.montoAsignado.trim() !== ''
+      ) {
+        const val = item.montoAsignado.trim();
+        if (!/^\d+(\.\d{1,2})?$/.test(val)) {
+          throw new BadRequestException(
+            `El monto presupuestario para la partida debe ser un número decimal válido mayor o igual a 0.00 con hasta 2 decimales.`,
+          );
+        }
+        const dec = new Decimal(val);
+        if (dec.isNegative() || dec.greaterThan('999999999999.99')) {
+          throw new BadRequestException('El monto presupuestario está fuera de los límites permitidos.');
+        }
+      }
+    }
+
+    // Ejecutar todas las operaciones en una sola transacción ACID
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of dto.items) {
+        // 1. Determinar el estado final de habilitación de la partida para esta unidad
+        let finalHabilitado: boolean;
+        if (item.habilitado !== undefined) {
+          finalHabilitado = item.habilitado;
+        } else {
+          const currentUp = await tx.unidadPartida.findUnique({
+            where: {
+              unidadId_partidaId: {
+                unidadId,
+                partidaId: item.partidaId,
+              },
+            },
+          });
+          finalHabilitado = currentUp?.activo ?? false;
+        }
+
+        const existingPresupuesto = await tx.presupuestoPartida.findUnique({
+          where: {
+            unidadId_gestion_partidaId: {
+              unidadId,
+              gestion: numGestion,
+              partidaId: item.partidaId,
+            },
+          },
+        });
+
+        const hasMontoInput =
+          item.montoAsignado !== undefined &&
+          item.montoAsignado !== null &&
+          item.montoAsignado.trim() !== '';
+
+        // REGLA: Si la partida queda o está deshabilitada, rechazar nuevas asignaciones o cambios de monto
+        if (!finalHabilitado && hasMontoInput) {
+          const montoStr = new Decimal(item.montoAsignado.trim()).toFixed(2);
+          const decimalMonto = new Prisma.Decimal(montoStr);
+
+          if (!existingPresupuesto) {
+            const partidaInfo = await tx.partida.findUnique({ where: { id: item.partidaId } });
+            const codigoPartida = partidaInfo?.codigo || item.partidaId;
+            throw new BadRequestException(
+              `No se puede asignar presupuesto a la partida ${codigoPartida} porque no está habilitada para esta unidad. Habilite la partida antes de asignar presupuesto.`,
+            );
+          } else if (!existingPresupuesto.montoAsignado.equals(decimalMonto)) {
+            const partidaInfo = await tx.partida.findUnique({ where: { id: item.partidaId } });
+            const codigoPartida = partidaInfo?.codigo || item.partidaId;
+            throw new BadRequestException(
+              `No se puede modificar el presupuesto de la partida ${codigoPartida} porque está deshabilitada para esta unidad. Habilite la partida antes de modificar su monto.`,
+            );
+          }
+        }
+
+        // 2. Actualizar estado de habilitación si fue especificado
+        if (item.habilitado !== undefined) {
+          await tx.unidadPartida.upsert({
+            where: {
+              unidadId_partidaId: {
+                unidadId,
+                partidaId: item.partidaId,
+              },
+            },
+            create: {
+              unidadId,
+              partidaId: item.partidaId,
+              activo: item.habilitado,
+            },
+            update: {
+              activo: item.habilitado,
+            },
+          });
+        }
+
+        // 3. Crear o actualizar presupuesto si la partida queda habilitada y se especificó un monto válido
+        if (finalHabilitado && hasMontoInput) {
+          const montoStr = new Decimal(item.montoAsignado.trim()).toFixed(2);
+          const decimalMonto = new Prisma.Decimal(montoStr);
+
+          if (existingPresupuesto) {
+            if (!existingPresupuesto.montoAsignado.equals(decimalMonto)) {
+              const montoAnterior = existingPresupuesto.montoAsignado;
+              await tx.presupuestoPartida.update({
+                where: { id: existingPresupuesto.id },
+                data: { montoAsignado: decimalMonto },
+              });
+
+              await tx.presupuestoHistorial.create({
+                data: {
+                  presupuestoPartidaId: existingPresupuesto.id,
+                  montoAnterior,
+                  montoNuevo: decimalMonto,
+                  motivo:
+                    (item.motivo && item.motivo.trim()) ||
+                    'Ajuste presupuestario desde configuración de unidad',
+                  actorId: currentUser.id,
+                  actorUsername: currentUser.username,
+                },
+              });
+            }
+          } else {
+            const nuevo = await tx.presupuestoPartida.create({
+              data: {
+                unidadId,
+                gestion: numGestion,
+                partidaId: item.partidaId,
+                montoAsignado: decimalMonto,
+              },
+            });
+
+            await tx.presupuestoHistorial.create({
+              data: {
+                presupuestoPartidaId: nuevo.id,
+                montoAnterior: new Prisma.Decimal('0.00'),
+                montoNuevo: decimalMonto,
+                motivo:
+                  (item.motivo && item.motivo.trim()) ||
+                  'Asignación presupuestaria inicial desde unidad',
+                actorId: currentUser.id,
+                actorUsername: currentUser.username,
+              },
+            });
+          }
+        }
+      }
+    });
+
+    // Auditoría institucional
+    await this.auditService.log({
+      actorId: currentUser.id,
+      actorUsername: currentUser.username,
+      accion: 'CONFIGURAR_PARTIDAS_PRESUPUESTOS_UNIDAD',
+      entidad: 'Unit',
+      entidadId: unidadId,
+      detalle: {
+        unidadId,
+        gestion: numGestion,
+        itemsModificados: dto.items.length,
+      },
+    });
+
+    return this.getPartidasConPresupuesto(unidadId, numGestion, currentUser);
   }
 }

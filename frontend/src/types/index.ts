@@ -92,6 +92,7 @@ export interface PresupuestoPartida {
   partidaId: string;
   montoAsignado: string;
   activo: boolean;
+  habilitado?: boolean;
   partida?: Partida;
   unidad?: Unit;
   historial?: PresupuestoHistorial[];
@@ -149,3 +150,27 @@ export interface DashboardData {
     estadoCaja: EstadoCajaApertura | 'NO_CONFIGURADA';
   };
 }
+
+export interface PartidaPresupuestoConfigItem {
+  partidaId: string;
+  codigo: string;
+  descripcion: string;
+  habilitado: boolean;
+  presupuestoId: string | null;
+  montoAsignado: string | null;
+  historial?: PresupuestoHistorial[];
+}
+
+export interface UnidadPartidasPresupuestosResponse {
+  unidad: Unit;
+  gestion: number;
+  items: PartidaPresupuestoConfigItem[];
+  totalPresupuestado: string;
+  totalPresupuestoHabilitado?: string;
+  totalPresupuestoDeshabilitado?: string;
+  partidasHabilitadas: number;
+  partidasConPresupuesto: number;
+  partidasDeshabilitadasConPresupuesto?: number;
+  totalPartidasCatalogo: number;
+}
+

@@ -13,6 +13,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { UnitsService } from './units.service';
 import { CreateUnitDto, UpdateUnitDto } from './dto/create-unit.dto';
 import { TogglePartidaUnidadDto } from './dto/toggle-partida.dto';
+import { SavePartidasPresupuestosDto } from './dto/save-partidas-presupuestos.dto';
 import { JwtAuthGuard, RolesGuard } from '../common/guards';
 import { Roles, CurrentUser, AuthenticatedUser } from '../common/decorators';
 import { RolUsuario } from '@prisma/client';
@@ -111,5 +112,26 @@ export class UnitsController {
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
     return this.unitsService.getPendientesPresupuesto(id, currentUser);
+  }
+
+  @Get(':id/partidas-presupuestos')
+  @ApiOperation({ summary: 'Obtener partidas con estado de habilitación y presupuesto asignado para una unidad y gestión' })
+  getPartidasPresupuestos(
+    @Param('id') id: string,
+    @Query('gestion') gestion: number,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ) {
+    return this.unitsService.getPartidasConPresupuesto(id, Number(gestion) || 2026, currentUser);
+  }
+
+  @Post(':id/partidas-presupuestos')
+  @Roles(RolUsuario.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Configurar habilitación y presupuestos de partidas para una unidad y gestión (Solo Administrador)' })
+  savePartidasPresupuestos(
+    @Param('id') id: string,
+    @Body() dto: SavePartidasPresupuestosDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ) {
+    return this.unitsService.savePartidasPresupuestos(id, dto, currentUser);
   }
 }

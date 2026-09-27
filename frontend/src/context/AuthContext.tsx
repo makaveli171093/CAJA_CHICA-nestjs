@@ -15,7 +15,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   setActiveUnitId: (unitId: string | null) => void;
   refreshUser: () => Promise<void>;
-  reloadUnits: () => Promise<void>;
+  reloadUnits: (preferUnitId?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -86,9 +86,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [activeUnitId]);
 
-  const reloadUnits = async () => {
+  const reloadUnits = async (preferUnitId?: string) => {
     if (!user) return;
-    await resolveUnits(user, activeUnitId);
+    await resolveUnits(user, preferUnitId || activeUnitId);
   };
 
   useEffect(() => {

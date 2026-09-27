@@ -70,9 +70,22 @@ export const App: React.FC = () => {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage currentGestion={currentGestion} />} />
         <Route path="apertura" element={<AperturaPage currentGestion={currentGestion} />} />
-        <Route path="presupuestos" element={<PresupuestosPage currentGestion={currentGestion} />} />
-        <Route path="responsables" element={<ResponsablesPage />} />
-        <Route path="unidades" element={<UnidadesPage />} />
+        <Route
+          path="responsables"
+          element={
+            <AdminRoute>
+              <ResponsablesPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="unidades"
+          element={
+            <AdminRoute>
+              <UnidadesPage />
+            </AdminRoute>
+          }
+        />
 
         {/* Rutas exclusivas para el Administrador */}
         <Route

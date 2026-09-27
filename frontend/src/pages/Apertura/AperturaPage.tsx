@@ -37,9 +37,10 @@ import { api } from '../../services/api';
 import { CajaApertura, Responsable } from '../../types';
 
 export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGestion }) => {
-  const { activeUnitId, activeUnit, user } = useAuth();
+  const { activeUnitId, activeUnit, accessibleUnits, setActiveUnitId, user } = useAuth();
   const [apertura, setApertura] = useState<CajaApertura | null>(null);
   const [responsables, setResponsables] = useState<Responsable[]>([]);
+  const [totalPresupuestoPartidas, setTotalPresupuestoPartidas] = useState<string>('0.00');
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -65,6 +66,7 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
     if (!activeUnitId) {
       setApertura(null);
       setResponsables([]);
+      setTotalPresupuestoPartidas('0.00');
       return;
     }
 
@@ -74,13 +76,17 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
     setIsLoading(true);
 
     try {
-      const [aperturaRes, respRes] = await Promise.all([
+      const [aperturaRes, respRes, presRes] = await Promise.all([
         api.get<CajaApertura | null>(`/apertura?unidadId=${activeUnitId}&gestion=${currentGestion}`),
         api.get<{ items: Responsable[] }>(`/responsables?unidadId=${activeUnitId}&activo=true`),
+        api.get<{ totalPresupuesto: string }>(
+          `/presupuestos?unidadId=${activeUnitId}&gestion=${currentGestion}`,
+        ).catch(() => ({ data: { totalPresupuesto: '0.00' } })),
       ]);
 
       setApertura(aperturaRes.data);
       setResponsables(respRes.data.items);
+      setTotalPresupuestoPartidas(presRes.data?.totalPresupuesto || '0.00');
 
       if (aperturaRes.data) {
         setFormData({
@@ -198,27 +204,44 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
 
   // Sin unidad seleccionada
   if (!activeUnitId) {
+    const hasUnits = accessibleUnits.length > 0;
     return (
       <Paper p="xl" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
         <Stack align="center" gap="md" py="xl">
-          <ThemeIcon size={56} radius="xl" color="gray" variant="light">
+          <ThemeIcon size={56} radius="xl" color="teal" variant="light">
             <IconBuilding size={32} />
           </ThemeIcon>
           <Title order={3} c="#1e293b" ta="center">
-            Sin unidad seleccionada
+            Seleccione una Unidad Institucional
           </Title>
           <Text size="sm" c="dimmed" ta="center" maw={520}>
-            Para aperturar o consultar el fondo de caja chica, seleccione una unidad institucional activa en el selector de la barra superior.
+            {hasUnits
+              ? `Seleccione la unidad institucional activa para aperturar o consultar el fondo de caja chica en la gestión ${currentGestion}.`
+              : 'No existen unidades institucionales registradas o no tiene unidades asignadas para operar.'}
           </Text>
-          {isAdmin && (
+          {hasUnits ? (
+            <Select
+              placeholder="Seleccione una unidad institucional..."
+              data={accessibleUnits.map((u) => ({
+                value: u.id,
+                label: `[${u.codigo}] ${u.nombre}`,
+              }))}
+              value={activeUnitId}
+              onChange={(val) => setActiveUnitId(val)}
+              size="md"
+              w={{ base: 280, sm: 380 }}
+              allowDeselect={false}
+              comboboxProps={{ shadow: 'md' }}
+            />
+          ) : isAdmin ? (
             <Button
               variant="outline"
               color="cpsTeal"
               onClick={() => navigate('/unidades')}
             >
-              Gestionar Unidades Institucionales
+              Registrar Unidades Institucionales
             </Button>
-          )}
+          ) : null}
         </Stack>
       </Paper>
     );
@@ -243,9 +266,9 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
 
   return (
     <Stack gap="lg">
-      {/* Encabezado con estado */}
+      {/* Encabezado con estado y montos diferenciados */}
       <Paper p="md" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
-        <Group justify="space-between" wrap="wrap">
+        <Group justify="space-between" wrap="wrap" gap="md">
           <Box>
             <Title order={3} c="#1e293b">
               {hasNoApertura
@@ -258,13 +281,32 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               Gestión Fiscal: {currentGestion} | Unidad: [{activeUnit?.codigo}] {activeUnit?.nombre}
             </Text>
           </Box>
-          <Badge
-            size="lg"
-            variant="filled"
-            color={isConfirmed ? 'teal' : isBorrador ? 'yellow' : 'gray'}
-          >
-            ESTADO: {apertura?.estado || 'SIN APERTURA REGISTRADA'}
-          </Badge>
+
+          <Group gap="xs" wrap="wrap">
+            <Paper p="xs" radius="sm" withBorder style={{ backgroundColor: '#f0fdf4' }}>
+              <Text size="10px" c="dimmed" fw={700}>
+                FONDO DE CAJA (EFECTIVO)
+              </Text>
+              <Text size="sm" fw={800} c="#007B6D">
+                Bs. {formData.importeRecibido}
+              </Text>
+            </Paper>
+            <Paper p="xs" radius="sm" withBorder style={{ backgroundColor: '#f8fafc' }}>
+              <Text size="10px" c="dimmed" fw={700}>
+                TOTAL PRESUPUESTO PARTIDAS
+              </Text>
+              <Text size="sm" fw={700} c="#1e293b">
+                Bs. {totalPresupuestoPartidas}
+              </Text>
+            </Paper>
+            <Badge
+              size="lg"
+              variant="filled"
+              color={isConfirmed ? 'teal' : isBorrador ? 'yellow' : 'gray'}
+            >
+              ESTADO: {apertura?.estado || 'SIN APERTURA REGISTRADA'}
+            </Badge>
+          </Group>
         </Group>
       </Paper>
 
@@ -315,16 +357,22 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
             La unidad institucional <strong>[{activeUnit?.codigo}] {activeUnit?.nombre}</strong> no cuenta con ningún funcionario activo con designación vigente como Responsable de Caja Chica.
             Por normativa institucional de la Caja Petrolera de Salud, es requisito obligatorio contar con un responsable con cuenta institucional activa y documento formal de designación antes de abrir el fondo.
           </Text>
-          <Button
-            size="xs"
-            color="orange"
-            variant="outline"
-            leftSection={<IconUserPlus size={14} />}
-            mt="xs"
-            onClick={() => navigate('/usuarios')}
-          >
-            Designar Encargado en Usuarios y Unidades &rarr;
-          </Button>
+          {user?.rol === 'ADMINISTRADOR' ? (
+            <Button
+              size="xs"
+              color="orange"
+              variant="outline"
+              leftSection={<IconUserPlus size={14} />}
+              mt="xs"
+              onClick={() => navigate('/usuarios')}
+            >
+              Designar Encargado en Usuarios y Unidades &rarr;
+            </Button>
+          ) : (
+            <Text size="xs" mt="xs" c="dimmed">
+              Por favor solicite la designación formal del responsable al Administrador del Sistema.
+            </Text>
+          )}
         </Alert>
       )}
 
