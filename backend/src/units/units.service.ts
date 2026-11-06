@@ -13,6 +13,7 @@ import { CreateUnitDto, UpdateUnitDto } from './dto/create-unit.dto';
 import { SavePartidasPresupuestosDto } from './dto/save-partidas-presupuestos.dto';
 import { AuthenticatedUser } from '../common/decorators';
 import { RolUsuario } from '@prisma/client';
+import { calcularDisponibilidadPresupuesto } from '../common/utils/presupuesto-calculo';
 
 @Injectable()
 export class UnitsService {
@@ -452,8 +453,8 @@ export class UnitsService {
     dto: SavePartidasPresupuestosDto,
     currentUser: AuthenticatedUser,
   ) {
-    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
-      throw new ForbiddenException('Solo el administrador puede configurar partidas y presupuestos.');
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR && currentUser.rol !== RolUsuario.FINANCIERO) {
+      throw new ForbiddenException('Solo el administrador o financiero pueden configurar partidas y presupuestos.');
     }
 
     const unit = await this.prisma.unit.findUnique({ where: { id: unidadId } });
@@ -567,6 +568,27 @@ export class UnitsService {
 
           if (existingPresupuesto) {
             if (!existingPresupuesto.montoAsignado.equals(decimalMonto)) {
+              // Validar que no se reduzca por debajo de lo comprometido en anticipos pendientes
+              const anticipos = await tx.anticipo.findMany({
+                where: {
+                  cajaApertura: { unidadId, gestion: numGestion },
+                  pedido: { partidaId: item.partidaId },
+                  estado: 'PENDIENTE',
+                },
+                select: { monto: true },
+              });
+              let totalComprometido = new Decimal('0.00');
+              for (const a of anticipos) {
+                totalComprometido = totalComprometido.plus(new Decimal(a.monto.toString()));
+              }
+              const calculo = calcularDisponibilidadPresupuesto(existingPresupuesto.montoAsignado.toString(), totalComprometido, 0);
+              if (new Decimal(montoStr).lessThan(calculo.minimoPermitidoParaAjuste)) {
+                const pInfo = await tx.partida.findUnique({ where: { id: item.partidaId } });
+                throw new BadRequestException(
+                  `No se puede reducir el presupuesto de la partida ${pInfo?.codigo || item.partidaId} por debajo de Bs ${calculo.minimoPermitidoParaAjuste.toFixed(2)}, monto comprometido en anticipos pendientes más gasto ejecutado.`,
+                );
+              }
+
               const montoAnterior = existingPresupuesto.montoAsignado;
               await tx.presupuestoPartida.update({
                 where: { id: existingPresupuesto.id },

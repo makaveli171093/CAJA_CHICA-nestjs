@@ -90,12 +90,68 @@
 
 ---
 
-#### D. PENDIENTE (FASE 2)
-- Módulo de **Pedidos de Caja Chica** (solicitudes de compra de bienes/servicios menores).
-- Circuito de **Anticipos** y registro de comprobantes con referencia al formulario REP-MAT externo.
-- **Formularios normativos:**
-  - Formulario 001 (vale provisional de entrega de dinero).
-  - Formulario 002 (rendición y descargo de gastos con comprobantes/facturas).
-  - Formulario 5308 (rendición formal de cuentas institucionales DAF).
-- Liquidación de anticipos y devolución física de sobrantes.
-- Definición de Auditoría Interna / DAF CPS sobre el cómputo de las 48 horas de plazo de rendición (días hábiles vs. calendario corrido).
+#### D. IMPLEMENTADO Y COMPROBADO EN FASE 2A: PEDIDOS, ANTICIPOS Y FORMULARIO 001
+- **Modelos y Persistencia en Base de Datos:**
+  - Enums `EstadoPedido` (`BORRADOR`, `ENTREGADO`, `CANCELADO`), `EstadoAnticipo` (`PENDIENTE`, `RENDIDO`) y adición de `ENTREGA_ANTICIPO` a `TipoMovimientoEfectivo`.
+  - Entidad `Pedido`: solicitante (nombres, apellidos, carnet, área), receptor del anticipo (nombres, apellidos, carnet), partida, monto, justificación/destino, descripción, referencia del pedido autorizado físico, referencia REP-MAT opcional, estado y auditoría.
+  - Entidad `Anticipo`: vinculación estricta con apertura de caja, custodio que entrega, número de vale de control, correlativo secuencial, instantánea inmutable en JSON (`datosValeJson`) para garantizar reimpresiones fieles en el tiempo sin depender de mutaciones en catálogos o personas.
+  - Migración incremental aplicada: `20260928120000_3_pedidos_anticipos_vale001` desplegada sin reinicio de base de datos en `caja_chica_cps` y `caja_chica_cps_test`.
+- **Regla Centralizada de Disponibilidad Presupuestaria:**
+  - Función centralizada [`calcularDisponibilidadPresupuesto`](file:///D:/DESARROLLO/PRODUCCION%20JARED/CAJA%20CHICA/backend/src/common/utils/presupuesto-calculo.ts):
+    $$\text{Disponible} = \text{Asignado} - \text{Comprometido Pendiente} - \text{Ejecutado}$$
+  - Reutilizada de forma homogénea en entrega de fondos (`PedidosService.entregar`), consultas (`PresupuestosService.findByUnidadGestion`), panel institucional (`DashboardService.getDashboardData`) y ajustes presupuestarios (`PresupuestosService.update`, `UnitsService.savePartidasPresupuestos`).
+  - **Límite de Reducción Administrativa:** Los ajustes de presupuesto respetan rigurosamente $\text{Comprometido Pendiente} + \text{Ejecutado}$. Si una reducción pretende fijar un monto inferior, es rechazada de inmediato.
+- **Validaciones Rigurosas de Fechas y Concurrencia:**
+  - **Coherencia Temporal:** Validación de que la fecha de solicitud del pedido pertenezca a la gestión fiscal activa y no sea anterior a la fecha formal de apertura de la caja chica (tanto al crear como al editar borradores). En la entrega, se valida que la fecha real no sea anterior a la apertura ni a la solicitud del pedido.
+  - **Concurrencia entre Dos Pedidos Diferentes:** Demostrado con pruebas automatizadas que dos pedidos distintos compitiendo por un saldo residual no pueden sobregirar efectivo ni presupuesto; se procesa exactamente el primero y el segundo es rechazado sin dejar saldos negativos.
+  - **Entrega Concurrente con Reducción de Presupuesto:** Transacciones serializadas con bloqueo `FOR UPDATE` que garantizan que el presupuesto nunca quede por debajo de los compromisos adquiridos.
+  - **Recuperación ante Reintentos (409 Conflict):** La interfaz de usuario detecta respuestas 409 y consulta automáticamente el estado del pedido; si la entrega ya fue registrada, recupera el vale emitido y abre la ventana de impresión/descarga sin presentar la operación como fallida.
+  - **Rollback Atómico:** Ante cualquier fallo en validaciones o ejecución transaccional, la operación se revierte en su totalidad sin egresos de efectivo, compromisos ni anticipos huérfanos.
+- **Formulario 001 — Emisión Provisional:**
+  - Implementación con Puppeteer en hoja tamaño carta estándar (215.9 × 279.4 mm).
+  - Encabezados institucionales CPS, número correlativo de control (`VALE-001-{CODIGO}-{GESTION}-{CORRELATIVO:04d}`), lugar y fecha.
+  - Monto en cifras y conversión rigurosa a texto literal en bolivianos (`numero-a-letras.ts`).
+  - Datos del solicitante, receptor del anticipo y custodio de caja chica conservados en la sección de identificación del vale.
+  - **Cuatro recuadros de firmas con sus rótulos institucionales exactos:**
+    1. *Solicitante (Firma y sello)*
+    2. *VoBo Jefe Inmediato Superior (Firma y sello)*
+    3. *Vo Bo: Jefe Depto. Nacional Administrativo Financiero DNAF (Firma y sello)*
+    4. *Vo Bo: Director Nal. Administrativo Financiero DAF (Firma y sello)*
+  - Espacios limpios para firmas y sellos manuales (sin firmas digitales ficticias).
+  - Muestra generada en `docs/muestras/formulario-001-muestra.pdf`.
+- **Pruebas Automatizadas en Base de Pruebas Aislada:**
+  - Suite de integración [`fase2a-pedidos-anticipos.spec.ts`](file:///D:/DESARROLLO/PRODUCCION%20JARED/CAJA%20CHICA/backend/src/test/fase2a-pedidos-anticipos.spec.ts) con 12 escenarios rigurosos evaluados en `caja_chica_cps_test`.
+  - **Total de pruebas en Jest:** **42 pruebas superadas con éxito en 8 suites (0 fallos).**
+  - **Compilaciones de producción:** Backend (`npm run build`) y Frontend (`npm run build`) en 0 errores.
+
+---
+
+#### E. IMPLEMENTADO Y COMPROBADO EN FASE 2B: RENDICIONES, NUEVOS ROLES, 48H HÁBILES Y TAILWIND V4
+- **Arquitectura Frontend con Tailwind CSS v4:**
+  - Migración exitosa al motor oficial `@tailwindcss/vite` y `tailwindcss` v4 sin necesidad de archivos legacy de configuración.
+  - Paleta institucional CPS integrada (`--color-cps-teal: #007B6D`, `--color-cps-teal-dark: #005d52`, etc.) y tipografía Inter.
+  - Compilación de producción en 2.6 segundos con 0 errores.
+- **Nuevos Roles Institucionales (RBAC):**
+  - `FINANCIERO`: Facultad exclusiva para la aprobación de presupuestos por partida y aprobación/rechazo de rendiciones de cuentas con facturas.
+  - `GERENCIA`: Acceso institucional global en estricto modo de **solo lectura** para paneles, reportes y métricas consolidadas (bloqueo automático de mutaciones en `UnitAccessGuard`).
+  - `ADMINISTRADOR`: Control total operativo y de configuración.
+  - `ENCARGADO`: Operador asignado a sus unidades institucionales autorizadas.
+- **Regla Normativa de 48 Horas Hábiles Administrativas:**
+  - Cómputo matemático formal de 48 horas en días hábiles (lunes a viernes), excluyendo íntegramente fines de semana (sábados y domingos).
+  - Indicador visual tipo semáforo en frontend con horas hábiles restantes y estado de vencimiento.
+- **Módulo Completo de Rendiciones de Cuentas (Fase 2B):**
+  - Entidad `Rendicion` y `DocumentoDescargo` con migración incremental versionada desplegada en PostgreSQL 18.
+  - Flujo de estados: `BORRADOR` &rarr; `ENVIADA` &rarr; `APROBADA` / `RECHAZADA`.
+  - Aprobación transaccional por el rol `FINANCIERO`:
+    - Transición del `Anticipo` a `RENDIDO`.
+    - Ingreso automático de efectivo por sobrante devuelto a caja chica (`DEVOLUCION_SOBRANTE`).
+    - Consolidación del gasto ejecutado real y captura de snapshot JSON inmutable.
+  - Rechazo fundado con registro obligatorio de motivo para subsanación del encargado.
+- **Motor de Impresión Dual (Formulario 002 / Form. 5308):**
+  - **Modo 1: Sobre Papel Preimpreso (Solo Datos):** Proyección milimétrica en coordenadas absolutas (mm) sin líneas ni encabezados, con controles interactivos de calibración de arrastre de impresora ($X$ e $Y$) persistentes en `localStorage`.
+  - **Modo 2: Hoja en Blanco Completa:** Formulario íntegro con encabezados oficiales CPS, tabla de facturas, liquidación de anticipo y 3 casillas de firmas reglamentarias (*Solicitante*, *Custodio*, *VoBo DAF*).
+- **Pruebas Automatizadas y Calidad:**
+  - **58 pruebas automatizadas superadas con éxito en 10 suites (0 fallos).**
+  - Compilación de Backend (`nest build`): 0 errores.
+  - Compilación de Frontend (`tsc -b && vite build`): 0 errores.
+

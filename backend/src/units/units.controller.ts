@@ -125,7 +125,7 @@ export class UnitsController {
   }
 
   @Post(':id/partidas-presupuestos')
-  @Roles(RolUsuario.ADMINISTRADOR)
+  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO)
   @ApiOperation({ summary: 'Configurar habilitación y presupuestos de partidas para una unidad y gestión (Solo Administrador)' })
   savePartidasPresupuestos(
     @Param('id') id: string,

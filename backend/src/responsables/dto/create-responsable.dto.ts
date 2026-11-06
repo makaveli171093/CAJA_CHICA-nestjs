@@ -90,4 +90,9 @@ export class UpdateResponsableDto {
   @ApiPropertyOptional({ description: 'Estado activo/inactivo' })
   @IsOptional()
   activo?: boolean;
+
+  @ApiPropertyOptional({ description: 'Motivo o justificación de la modificación del responsable' })
+  @IsOptional()
+  @IsString()
+  justificacion?: string;
 }

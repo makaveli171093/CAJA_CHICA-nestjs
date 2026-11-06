@@ -45,9 +45,14 @@ export const LoginPage: React.FC = () => {
       });
       navigate('/dashboard');
     } catch (err: any) {
-      const message =
-        err.response?.data?.message ||
-        'Error de autenticación. Verifique sus credenciales o consulte al administrador.';
+      let message = 'Error de autenticación. Verifique sus credenciales o consulte al administrador.';
+      if (err.response?.data?.message) {
+        message = Array.isArray(err.response.data.message)
+          ? err.response.data.message.join('. ')
+          : err.response.data.message;
+      } else if (err.message && !err.response) {
+        message = 'No se pudo conectar con el servidor (Error de red/servidor reiniciando). Por favor intente nuevamente en unos segundos.';
+      }
       setErrorMsg(message);
     } finally {
       setIsLoading(false);

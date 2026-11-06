@@ -67,10 +67,22 @@ export class UnitAccessGuard implements CanActivate {
       throw new UnauthorizedException('Usuario no autenticado.');
     }
 
-    // El Administrador tiene acceso global para configuración y auditoría
-    if (user.rol === RolUsuario.ADMINISTRADOR) {
+    // El Administrador y Financiero tienen acceso global institucional
+    if (user.rol === RolUsuario.ADMINISTRADOR || user.rol === RolUsuario.FINANCIERO) {
       return true;
     }
+
+    // Gerencia tiene acceso institucional global pero en estricto modo de solo lectura
+    if (user.rol === RolUsuario.GERENCIA) {
+      const method = (request.method || '').toUpperCase();
+      if (['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+        return true;
+      }
+      throw new ForbiddenException(
+        'El rol GERENCIA cuenta exclusivamente con permisos de solo lectura para reportes y métricas.',
+      );
+    }
+
 
     // 1. Obtener unidadId explícito si fue enviado en params, query o body
     const unidadId =
@@ -135,6 +147,32 @@ export class UnitAccessGuard implements CanActivate {
           if (!hasAccess) {
             throw new ForbiddenException(
               'Acceso denegado: La apertura de caja pertenece a una unidad no autorizada.',
+            );
+          }
+        }
+      } else if (path.includes('pedidos')) {
+        const pedido = await this.prisma.pedido.findUnique({
+          where: { id: resourceId },
+          select: { unidadId: true },
+        });
+        if (pedido) {
+          const hasAccess = user.unidades && user.unidades.includes(pedido.unidadId);
+          if (!hasAccess) {
+            throw new ForbiddenException(
+              'Acceso denegado: El pedido pertenece a una unidad no autorizada.',
+            );
+          }
+        }
+      } else if (path.includes('anticipos')) {
+        const anticipo = await this.prisma.anticipo.findUnique({
+          where: { id: resourceId },
+          include: { pedido: { select: { unidadId: true } } },
+        });
+        if (anticipo?.pedido) {
+          const hasAccess = user.unidades && user.unidades.includes(anticipo.pedido.unidadId);
+          if (!hasAccess) {
+            throw new ForbiddenException(
+              'Acceso denegado: El anticipo pertenece a una unidad no autorizada.',
             );
           }
         }

@@ -1,12 +1,14 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsDateString,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsDecimalString } from '../../common/validators/is-decimal-string.validator';
@@ -101,4 +103,37 @@ export class UpdateAperturaDto {
   @IsNotEmpty()
   @MaxLength(150)
   compIngreso: string;
+}
+
+export class CorregirAperturaDto {
+  @ApiProperty({
+    description: 'Justificación formal o motivo normativo del ajuste de datos de apertura',
+    example: 'Corrección de número de comprobante de ingreso según cheque oficial emitido por DAF',
+  })
+  @IsString({ message: 'La justificación debe ser una cadena de texto.' })
+  @IsNotEmpty({ message: 'La justificación o motivo de la corrección es obligatoria.' })
+  @MinLength(10, { message: 'La justificación debe tener al menos 10 caracteres.' })
+  justificacion: string;
+
+  @ApiPropertyOptional({ description: 'ID del responsable asignado' })
+  @IsOptional()
+  @IsString()
+  responsableId?: string;
+
+  @ApiPropertyOptional({ description: 'Fecha oficial de apertura (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsDateString({}, { message: 'La fecha de apertura debe tener formato YYYY-MM-DD.' })
+  fechaApertura?: string;
+
+  @ApiPropertyOptional({ description: 'Documento de autorización' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  docAutorizacion?: string;
+
+  @ApiPropertyOptional({ description: 'Comprobante de ingreso' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  compIngreso?: string;
 }

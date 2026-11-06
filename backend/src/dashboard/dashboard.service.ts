@@ -7,13 +7,20 @@ import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/decorators';
 import { RolUsuario, EstadoCajaApertura } from '@prisma/client';
+import { calcularDisponibilidadPresupuesto } from '../common/utils/presupuesto-calculo';
 
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
   private checkUnitPermission(unidadId: string, currentUser: AuthenticatedUser) {
-    if (currentUser.rol === RolUsuario.ADMINISTRADOR) return;
+    if (
+      currentUser.rol === RolUsuario.ADMINISTRADOR ||
+      currentUser.rol === RolUsuario.FINANCIERO ||
+      currentUser.rol === RolUsuario.GERENCIA
+    ) {
+      return;
+    }
     if (!currentUser.unidades.includes(unidadId)) {
       throw new ForbiddenException('No tiene acceso a la información de esta unidad.');
     }
@@ -66,32 +73,75 @@ export class DashboardService {
     }
 
     // 3. Obtener presupuestos por partida para la unidad y gestión
-    const presupuestos = await this.prisma.presupuestoPartida.findMany({
-      where: {
-        unidadId,
-        gestion: Number(gestion),
-        activo: true,
-      },
-      include: {
-        partida: true,
-      },
-      orderBy: {
-        partida: { codigo: 'asc' },
-      },
+    const [presupuestos, anticipos] = await Promise.all([
+      this.prisma.presupuestoPartida.findMany({
+        where: {
+          unidadId,
+          gestion: Number(gestion),
+          activo: true,
+        },
+        include: {
+          partida: true,
+        },
+        orderBy: {
+          partida: { codigo: 'asc' },
+        },
+      }),
+      this.prisma.anticipo.findMany({
+        where: {
+          cajaApertura: {
+            unidadId,
+            gestion: Number(gestion),
+          },
+          estado: 'PENDIENTE',
+        },
+        include: {
+          pedido: { select: { partidaId: true } },
+        },
+      }),
+    ]);
+
+    const mapaComprometido = new Map<string, Decimal>();
+    let totalAnticiposPendientesDecimal = new Decimal('0.00');
+
+    anticipos.forEach((ant) => {
+      const pId = ant.pedido.partidaId;
+      const antDec = new Decimal(ant.monto.toString());
+      totalAnticiposPendientesDecimal = totalAnticiposPendientesDecimal.plus(antDec);
+      const prev = mapaComprometido.get(pId) || new Decimal('0.00');
+      mapaComprometido.set(pId, prev.plus(antDec));
     });
 
     let totalPresupuestoDecimal = new Decimal('0.00');
+    let totalComprometidoDecimal = new Decimal('0.00');
+
     const presupuestoPorPartida = presupuestos.map((p) => {
       const pDecimal = new Decimal(p.montoAsignado.toString());
       totalPresupuestoDecimal = totalPresupuestoDecimal.plus(pDecimal);
+      const compromDec = mapaComprometido.get(p.partidaId) || new Decimal('0.00');
+      totalComprometidoDecimal = totalComprometidoDecimal.plus(compromDec);
+      // REGLA CENTRALIZADA CPS: disponible = asignado - comprometido - ejecutado
+      const calculo = calcularDisponibilidadPresupuesto(pDecimal, compromDec, 0);
+      const disponibleDec = calculo.disponible;
+
       return {
         id: p.id,
         partidaId: p.partidaId,
         partidaCodigo: p.partida.codigo,
         partidaDescripcion: p.partida.descripcion,
         montoAsignado: p.montoAsignado.toFixed(2),
+        comprometido: compromDec.toFixed(2),
+        disponible: disponibleDec.toFixed(2),
       };
     });
+
+    const totalDisponiblePresupuestoDecimal = totalPresupuestoDecimal.minus(totalComprometidoDecimal);
+
+    // REGLA INSTITUCIONAL CPS: Límite por operación (10%) calculado sobre el presupuesto total asignado por partidas (POA)
+    const baseCalculoLimite = totalPresupuestoDecimal.greaterThan(0)
+      ? totalPresupuestoDecimal
+      : montoAutorizadoDecimal;
+    limitePorComprobanteDecimal = baseCalculoLimite.times(0.10);
 
     return {
       unidad: {
@@ -134,9 +184,17 @@ export class DashboardService {
       montoAutorizado: montoAutorizadoDecimal.toFixed(2),
       efectivoDisponible: efectivoDisponibleDecimal.toFixed(2),
       limitePorComprobante: limitePorComprobanteDecimal.toFixed(2),
+      totalAnticiposPendientes: totalAnticiposPendientesDecimal.toFixed(2),
+      cantidadAnticiposPendientes: anticipos.length,
+      totalComprometido: totalComprometidoDecimal.toFixed(2),
+      totalDisponiblePresupuesto: totalDisponiblePresupuestoDecimal.toFixed(2),
       presupuestoPorPartida,
       resumen: {
         totalPresupuestoAsignado: totalPresupuestoDecimal.toFixed(2),
+        totalComprometido: totalComprometidoDecimal.toFixed(2),
+        totalDisponiblePresupuesto: totalDisponiblePresupuestoDecimal.toFixed(2),
+        totalAnticiposPendientes: totalAnticiposPendientesDecimal.toFixed(2),
+        cantidadAnticiposPendientes: anticipos.length,
         totalPartidasConfiguradas: presupuestoPorPartida.length,
         estadoCaja: caja ? caja.estado : 'NO_CONFIGURADA',
       },

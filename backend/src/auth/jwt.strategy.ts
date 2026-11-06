@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/decorators';
+import { RolUsuario } from '@prisma/client';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -49,12 +50,26 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Usuario no válido o deshabilitado.');
     }
 
+    let unitIds = user.unidades.map((u) => u.unitId);
+    const isGlobalRole =
+      user.rol === RolUsuario.ADMINISTRADOR ||
+      user.rol === RolUsuario.FINANCIERO ||
+      user.rol === RolUsuario.GERENCIA;
+
+    if (isGlobalRole && unitIds.length === 0) {
+      const allActiveUnits = await this.prisma.unit.findMany({
+        where: { activo: true },
+        select: { id: true },
+      });
+      unitIds = allActiveUnits.map((u) => u.id);
+    }
+
     return {
       id: user.id,
       username: user.username,
       nombreCompleto: user.nombreCompleto,
       rol: user.rol,
-      unidades: user.unidades.map((u) => u.unitId),
+      unidades: unitIds,
     };
   }
 }

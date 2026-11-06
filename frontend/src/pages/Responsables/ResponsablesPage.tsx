@@ -18,6 +18,7 @@ import { IconUserPlus, IconUserX, IconEdit, IconInfoCircle } from '@tabler/icons
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { Responsable } from '../../types';
+import { formatDateToBO } from '../../utils/dateUtils';
 
 export const ResponsablesPage: React.FC = () => {
   const { activeUnitId } = useAuth();
@@ -144,7 +145,7 @@ export const ResponsablesPage: React.FC = () => {
                       {r.documentoDesignacion}
                     </Badge>
                   </Table.Td>
-                  <Table.Td>{new Date(r.fechaDesignacion).toLocaleDateString('es-BO')}</Table.Td>
+                  <Table.Td>{formatDateToBO(r.fechaDesignacion)}</Table.Td>
                   <Table.Td>
                     <Badge color={r.activo && (!r.user || r.user.activo) ? 'teal' : 'gray'} variant="light">
                       {r.activo && (!r.user || r.user.activo) ? 'ACTIVO' : 'INACTIVO'}

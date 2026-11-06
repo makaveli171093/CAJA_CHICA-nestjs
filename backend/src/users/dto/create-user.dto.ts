@@ -65,8 +65,9 @@ export class CreateUserDto {
   password: string;
 
   @ApiProperty({ enum: RolUsuario, description: 'Rol asignado', default: RolUsuario.ENCARGADO })
-  @IsEnum(RolUsuario, { message: 'El rol debe ser ADMINISTRADOR o ENCARGADO.' })
+  @IsEnum(RolUsuario, { message: 'El rol debe ser ADMINISTRADOR, ENCARGADO, FINANCIERO o GERENCIA.' })
   rol: RolUsuario;
+
 
   @ApiPropertyOptional({ description: 'Estado activo del usuario', default: true })
   @IsOptional()

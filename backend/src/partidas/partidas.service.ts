@@ -82,7 +82,7 @@ export class PartidasService {
             },
           };
         }
-      } else if (params.currentUser.rol === RolUsuario.ADMINISTRADOR && params.unidadId) {
+      } else if (params.unidadId) {
         where.unidadesHabilitadas = {
           some: {
             unidadId: params.unidadId,

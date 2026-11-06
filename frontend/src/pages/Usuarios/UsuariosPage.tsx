@@ -35,7 +35,9 @@ import {
   IconId,
 } from '@tabler/icons-react';
 import { api } from '../../services/api';
-import { User, Unit, Responsable } from '../../types';
+import { User, Unit, Responsable, RolUsuario } from '../../types';
+import { DateInputBO } from '../../components/common/DateInputBO';
+import { formatDateToBO } from '../../utils/dateUtils';
 
 interface DesignacionFormItem {
   unidadId: string;
@@ -67,12 +69,13 @@ export const UsuariosPage: React.FC = () => {
     email: '',
     password: '',
     changePassword: false,
-    rol: 'ENCARGADO' as 'ADMINISTRADOR' | 'ENCARGADO',
+    rol: 'ENCARGADO' as RolUsuario,
     activo: true,
     carnetIdentidad: '',
     cargo: 'Encargado de Caja Chica',
     designaciones: [] as DesignacionFormItem[],
   });
+
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -239,23 +242,17 @@ export const UsuariosPage: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      const payload: any = {
-        username: form.username.trim(),
-        nombres: form.nombres.trim(),
-        apellidos: form.apellidos.trim(),
-        nombreCompleto: `${form.nombres.trim()} ${form.apellidos.trim()}`.trim(),
-        email: form.email.trim() || undefined,
-        rol: form.rol,
-        activo: form.activo,
-      };
+      // 1. Validaciones comunes de perfil
+      const nombresTrim = form.nombres.trim();
+      const apellidosTrim = form.apellidos.trim();
+      const nombreCompleto = `${nombresTrim} ${apellidosTrim}`.trim();
+      const emailTrim = form.email.trim();
 
-      if (!isEditing || form.changePassword) {
-        if (!form.password) {
-          throw new Error('Debe especificar la contraseña.');
-        }
-        payload.password = form.password;
-      }
+      if (!nombresTrim) throw new Error('Los nombres del funcionario son obligatorios.');
+      if (!apellidosTrim) throw new Error('Los apellidos del funcionario son obligatorios.');
 
+      // Validaciones específicas para rol ENCARGADO
+      let designacionesPayload: any[] | undefined = undefined;
       if (form.rol === 'ENCARGADO') {
         if (!form.carnetIdentidad.trim()) {
           throw new Error('El carnet de identidad es obligatorio para un encargado.');
@@ -284,9 +281,7 @@ export const UsuariosPage: React.FC = () => {
           }
         }
 
-        payload.carnetIdentidad = form.carnetIdentidad.trim();
-        payload.cargo = form.cargo.trim();
-        payload.designaciones = form.designaciones.map((d) => ({
+        designacionesPayload = form.designaciones.map((d) => ({
           unidadId: d.unidadId,
           documentoDesignacion: d.documentoDesignacion.trim(),
           fechaDesignacion: d.fechaDesignacion,
@@ -295,18 +290,71 @@ export const UsuariosPage: React.FC = () => {
         }));
       }
 
+      // 2. Separación explícita de payloads para Crear y Actualizar
       if (isEditing && selectedUser) {
-        await api.patch(`/usuarios/${selectedUser.id}`, payload);
+        // PAYLOAD DE ACTUALIZACIÓN (UpdateUserDto)
+        // REGLA: Omitir username y campos auxiliares de interfaz
+        const updatePayload: any = {
+          nombres: nombresTrim,
+          apellidos: apellidosTrim,
+          nombreCompleto,
+          email: emailTrim || undefined,
+          rol: form.rol,
+          activo: form.activo,
+        };
+
+        // Omite password salvo que se haya seleccionado "Modificar contraseña" y validado
+        if (form.changePassword) {
+          if (!form.password || form.password.length < 6) {
+            throw new Error('La nueva contraseña debe tener al menos 6 caracteres.');
+          }
+          updatePayload.password = form.password;
+        }
+
+        if (form.rol === 'ENCARGADO') {
+          updatePayload.carnetIdentidad = form.carnetIdentidad.trim();
+          updatePayload.cargo = form.cargo.trim();
+          updatePayload.designaciones = designacionesPayload;
+        }
+
+        await api.patch(`/usuarios/${selectedUser.id}`, updatePayload);
         notifications.show({
           title: 'Usuario Actualizado',
-          message: `La información y designaciones de "${payload.username}" fueron actualizadas exitosamente.`,
+          message: `La información y designaciones de "${selectedUser.username}" fueron actualizadas exitosamente.`,
           color: 'teal',
         });
       } else {
-        await api.post('/usuarios', payload);
+        // PAYLOAD DE CREACIÓN (CreateUserDto)
+        // REGLA: Incluir username y password obligatorio
+        const usernameTrim = form.username.trim();
+        if (!usernameTrim) {
+          throw new Error('El nombre de usuario es obligatorio para el registro inicial.');
+        }
+        if (!form.password || form.password.length < 6) {
+          throw new Error('La contraseña inicial es obligatoria y debe tener al menos 6 caracteres.');
+        }
+
+        const createPayload: any = {
+          username: usernameTrim,
+          password: form.password,
+          nombres: nombresTrim,
+          apellidos: apellidosTrim,
+          nombreCompleto,
+          email: emailTrim || undefined,
+          rol: form.rol,
+          activo: form.activo,
+        };
+
+        if (form.rol === 'ENCARGADO') {
+          createPayload.carnetIdentidad = form.carnetIdentidad.trim();
+          createPayload.cargo = form.cargo.trim();
+          createPayload.designaciones = designacionesPayload;
+        }
+
+        await api.post('/usuarios', createPayload);
         notifications.show({
           title: 'Usuario Creado',
-          message: `El usuario "${payload.username}" fue creado con su perfil y designación institucional.`,
+          message: `El usuario "${createPayload.username}" fue creado con su perfil y designación institucional.`,
           color: 'teal',
         });
       }
@@ -406,7 +454,19 @@ export const UsuariosPage: React.FC = () => {
                       )}
                     </Table.Td>
                     <Table.Td>
-                      <Badge color={u.rol === 'ADMINISTRADOR' ? 'blue' : 'teal'} variant="light" mb={4}>
+                      <Badge
+                        color={
+                          u.rol === 'ADMINISTRADOR'
+                            ? 'blue'
+                            : u.rol === 'FINANCIERO'
+                            ? 'violet'
+                            : u.rol === 'GERENCIA'
+                            ? 'indigo'
+                            : 'teal'
+                        }
+                        variant="light"
+                        mb={4}
+                      >
                         {u.rol}
                       </Badge>
                       {u.cargo && (
@@ -416,11 +476,16 @@ export const UsuariosPage: React.FC = () => {
                       )}
                     </Table.Td>
                     <Table.Td>
-                      {u.rol === 'ADMINISTRADOR' ? (
+                      {u.rol === 'ADMINISTRADOR' || u.rol === 'FINANCIERO' || u.rol === 'GERENCIA' ? (
                         <Text size="xs" c="dimmed">
-                          Acceso Global a todas las unidades
+                          {u.rol === 'GERENCIA'
+                            ? 'Acceso Institucional Global (Solo Lectura)'
+                            : u.rol === 'FINANCIERO'
+                            ? 'Acceso Global (Aprobación Presupuestos y Rendiciones)'
+                            : 'Acceso Global de Administración'}
                         </Text>
                       ) : (
+
                         <Stack gap={4}>
                           {u.unidades && u.unidades.length > 0 ? (
                             u.unidades.map((unit) => {
@@ -521,8 +586,10 @@ export const UsuariosPage: React.FC = () => {
               <TextInput
                 label="Nombre de Usuario (Acceso)"
                 placeholder="ej. jlinares"
-                required
+                required={!isEditing}
                 disabled={isEditing}
+                readOnly={isEditing}
+                description={isEditing ? 'Identificador único de acceso (solo lectura)' : undefined}
                 value={form.username}
                 onChange={(e) => setForm({ ...form, username: e.currentTarget.value })}
               />
@@ -557,12 +624,15 @@ export const UsuariosPage: React.FC = () => {
                 label="Rol Institucional"
                 data={[
                   { value: 'ENCARGADO', label: 'ENCARGADO (Opera caja chica en sus unidades asignadas)' },
-                  { value: 'ADMINISTRADOR', label: 'ADMINISTRADOR (Gestión global del sistema)' },
+                  { value: 'FINANCIERO', label: 'FINANCIERO (Aprueba presupuestos y rendiciones de cuentas)' },
+                  { value: 'GERENCIA', label: 'GERENCIA (Modo lectura para reportes y métricas consolidadas)' },
+                  { value: 'ADMINISTRADOR', label: 'ADMINISTRADOR (Gestión global total del sistema)' },
                 ]}
                 value={form.rol}
                 onChange={(val) => setForm({ ...form, rol: (val as any) || 'ENCARGADO' })}
                 required
               />
+
               <Switch
                 label="Usuario Activo"
                 checked={form.activo}
@@ -695,7 +765,7 @@ export const UsuariosPage: React.FC = () => {
                                 clearable
                                 data={unlinkedForUnit.map((ur) => ({
                                   value: ur.id,
-                                  label: `${ur.nombres} ${ur.apellidos} - Memo: ${ur.documentoDesignacion} (${new Date(ur.fechaDesignacion).toLocaleDateString('es-BO')})`,
+                                  label: `${ur.nombres} ${ur.apellidos} - Memo: ${ur.documentoDesignacion} (${formatDateToBO(ur.fechaDesignacion)})`,
                                 }))}
                                 value={desig.responsableId || null}
                                 onChange={(val) => {
@@ -725,13 +795,12 @@ export const UsuariosPage: React.FC = () => {
                                   handleDesignacionChange(idx, 'documentoDesignacion', e.currentTarget.value)
                                 }
                               />
-                              <TextInput
+                              <DateInputBO
                                 label="Fecha Formal de Designación"
-                                type="date"
                                 required
                                 value={desig.fechaDesignacion}
-                                onChange={(e) =>
-                                  handleDesignacionChange(idx, 'fechaDesignacion', e.currentTarget.value)
+                                onChange={(val) =>
+                                  handleDesignacionChange(idx, 'fechaDesignacion', val)
                                 }
                               />
                             </Group>

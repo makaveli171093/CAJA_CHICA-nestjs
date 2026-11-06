@@ -10,6 +10,8 @@ datasource db {
 enum RolUsuario {
   ADMINISTRADOR
   ENCARGADO
+  FINANCIERO
+  GERENCIA
 }
 
 enum EstadoCajaApertura {
@@ -20,10 +22,55 @@ enum EstadoCajaApertura {
 
 enum TipoMovimientoEfectivo {
   APERTURA
+  ENTREGA_ANTICIPO
   DESCARGO
   REPOSICION
   DEVOLUCION_SOBRANTE
   AJUSTE
+}
+
+enum EstadoPedido {
+  BORRADOR
+  ENTREGADO
+  CANCELADO
+}
+
+enum EstadoAnticipo {
+  PENDIENTE
+  RENDIDO
+}
+
+enum EstadoRendicion {
+  BORRADOR
+  ENVIADA
+  APROBADA
+  RECHAZADA
+}
+
+enum TipoDocumentoDescargo {
+  FACTURA_COMPRA
+  RECIBO_OFICIAL
+  OTRO_AUTORIZADO
+}
+
+enum EstadoReposicion {
+  BORRADOR
+  SOLICITADA
+  APROBADA
+  RECHAZADA
+  EFECTUADA
+}
+
+enum TipoArqueo {
+  PERIODICO
+  SORPRESIVO
+  CIERRE_GESTION
+}
+
+enum EstadoArqueo {
+  CONFORME
+  FALTANTE
+  SOBRANTE
 }
 
 model User {
@@ -41,12 +88,20 @@ model User {
   createdAt      DateTime    @default(now()) @db.Timestamptz
   updatedAt      DateTime    @updatedAt @db.Timestamptz
 
-  unidades       UserUnit[]
-  responsables   Responsable[]
-  auditorias     Auditoria[]
+  unidades             UserUnit[]
+  responsables         Responsable[]
+  auditorias           Auditoria[]
+  pedidosRegistrados   Pedido[]      @relation("PedidosRegistrados")
+  anticiposEntregados  Anticipo[]    @relation("AnticiposEntregados")
+  rendicionesCreadas   Rendicion[]   @relation("RendicionesCreadas")
+  rendicionesAprobadas Rendicion[]   @relation("RendicionesAprobadas")
+  reposicionesSolicitadas Reposicion[] @relation("ReposicionesSolicitadas")
+  reposicionesAprobadas   Reposicion[] @relation("ReposicionesAprobadas")
+  arqueosRealizados       ArqueoCaja[] @relation("ArqueosRealizados")
 
   @@map("usuarios")
 }
+
 
 model Unit {
   id          String   @id @default(uuid())
@@ -62,6 +117,10 @@ model Unit {
   cajasApertura       CajaApertura[]
   presupuestos        PresupuestoPartida[]
   partidasHabilitadas UnidadPartida[]
+  pedidos             Pedido[]
+  rendiciones         Rendicion[]
+  reposiciones        Reposicion[]
+  arqueos             ArqueoCaja[]
 
   @@map("unidades")
 }
@@ -109,9 +168,12 @@ model Partida {
 
   presupuestos        PresupuestoPartida[]
   unidadesHabilitadas UnidadPartida[]
+  pedidos             Pedido[]
+  documentosDescargo  DocumentoDescargo[]
 
   @@map("partidas")
 }
+
 
 model UnidadPartida {
   id        String   @id @default(uuid())
@@ -180,6 +242,11 @@ model CajaApertura {
   unidad      Unit                 @relation(fields: [unidadId], references: [id])
   responsable Responsable          @relation(fields: [responsableId], references: [id])
   movimientos MovimientoEfectivo[]
+  pedidos     Pedido[]
+  anticipos   Anticipo[]
+  rendiciones Rendicion[]
+  reposiciones Reposicion[]
+  arqueos     ArqueoCaja[]
 
   @@unique([unidadId, gestion])
   @@map("cajas_apertura")
@@ -194,11 +261,145 @@ model MovimientoEfectivo {
   descripcion           String
   comprobanteReferencia String?
   actorId               String
+  anticipoId            String?                @unique
+  rendicionId           String?                @unique
+  reposicionId          String?                @unique
   createdAt             DateTime               @default(now()) @db.Timestamptz
 
   cajaApertura CajaApertura @relation(fields: [cajaAperturaId], references: [id], onDelete: Cascade)
+  anticipo     Anticipo?    @relation(fields: [anticipoId], references: [id], onDelete: SetNull)
+  rendicion    Rendicion?   @relation(fields: [rendicionId], references: [id], onDelete: SetNull)
+  reposicion   Reposicion?  @relation(fields: [reposicionId], references: [id], onDelete: SetNull)
 
   @@map("movimientos_efectivo")
+}
+
+model Pedido {
+  id                   String       @id @default(uuid())
+  unidadId             String
+  gestion              Int
+  cajaAperturaId       String
+  partidaId            String
+  numeroPedido         String       // Referencia física o código del pedido autorizado
+  fechaSolicitud       DateTime     @db.Date
+  lugar                String       @default("La Paz")
+  solicitanteNombres   String
+  solicitanteApellidos String
+  solicitanteCi        String
+  solicitanteArea      String
+  descripcion          String       @db.Text
+  motivo               String       @db.Text
+  receptorNombres      String
+  receptorApellidos    String
+  receptorCi           String
+  monto                Decimal      @db.Decimal(14, 2)
+  referenciaRepMat     String?
+  observaciones        String?      @db.Text
+  estado               EstadoPedido @default(BORRADOR)
+  motivoCancelacion    String?      @db.Text
+  registradoPorId      String
+  createdAt            DateTime     @default(now()) @db.Timestamptz
+  updatedAt            DateTime     @updatedAt @db.Timestamptz
+
+  unidad        Unit         @relation(fields: [unidadId], references: [id])
+  cajaApertura  CajaApertura @relation(fields: [cajaAperturaId], references: [id])
+  partida       Partida      @relation(fields: [partidaId], references: [id])
+  registradoPor User         @relation("PedidosRegistrados", fields: [registradoPorId], references: [id])
+  anticipo      Anticipo?
+
+  @@index([unidadId, gestion])
+  @@index([cajaAperturaId])
+  @@index([partidaId])
+  @@map("pedidos")
+}
+
+model Anticipo {
+  id              String         @id @default(uuid())
+  pedidoId        String         @unique
+  cajaAperturaId  String
+  monto           Decimal        @db.Decimal(14, 2)
+  fechaEntrega    DateTime       @default(now()) @db.Timestamptz
+  entregadoPorId  String
+  estado          EstadoAnticipo @default(PENDIENTE)
+  numeroVale      String         @unique // e.g. "VALE-001-LPZ-2026-0001"
+  correlativoVale Int            // Correlativo seguro por cajaApertura
+  datosValeJson   String         @db.Text
+  createdAt       DateTime       @default(now()) @db.Timestamptz
+  updatedAt       DateTime       @updatedAt @db.Timestamptz
+
+  pedido             Pedido              @relation(fields: [pedidoId], references: [id])
+  cajaApertura       CajaApertura        @relation(fields: [cajaAperturaId], references: [id])
+  entregadoPor       User                @relation("AnticiposEntregados", fields: [entregadoPorId], references: [id])
+  movimientoEfectivo MovimientoEfectivo?
+  rendicion          Rendicion?
+
+  @@unique([cajaAperturaId, correlativoVale])
+  @@index([cajaAperturaId, estado])
+  @@map("anticipos")
+}
+
+model Rendicion {
+  id                   String              @id @default(uuid())
+  numeroRendicion      String              @unique // e.g. "REND-002-LPZ-2026-0001"
+  correlativoRendicion Int
+  anticipoId           String              @unique
+  cajaAperturaId       String
+  unidadId             String
+  gestion              Int
+  fechaRendicion       DateTime            @default(now()) @db.Timestamptz
+  montoAnticipo        Decimal             @db.Decimal(14, 2)
+  totalDescargado      Decimal             @db.Decimal(14, 2)
+  montoSobrante        Decimal             @db.Decimal(14, 2)
+  montoDevuelto        Decimal             @default(0) @db.Decimal(14, 2)
+  estado               EstadoRendicion     @default(BORRADOR)
+  observaciones        String?             @db.Text
+  motivoRechazo        String?             @db.Text
+  datosRendicionJson   String?             @db.Text
+  creadoPorUserId      String
+  aprobadoPorUserId    String?
+  reposicionId         String?
+  fechaAprobacion      DateTime?           @db.Timestamptz
+  createdAt            DateTime            @default(now()) @db.Timestamptz
+  updatedAt            DateTime            @updatedAt @db.Timestamptz
+
+  anticipo             Anticipo            @relation(fields: [anticipoId], references: [id])
+  cajaApertura         CajaApertura        @relation(fields: [cajaAperturaId], references: [id])
+  unidad               Unit                @relation(fields: [unidadId], references: [id])
+  reposicion           Reposicion?         @relation(fields: [reposicionId], references: [id], onDelete: SetNull)
+  creadoPor            User                @relation("RendicionesCreadas", fields: [creadoPorUserId], references: [id])
+  aprobadoPor          User?               @relation("RendicionesAprobadas", fields: [aprobadoPorUserId], references: [id])
+  documentos           DocumentoDescargo[]
+  movimientoDevolucion MovimientoEfectivo?
+
+  @@unique([cajaAperturaId, correlativoRendicion])
+  @@index([unidadId, gestion])
+  @@index([cajaAperturaId, estado])
+  @@index([reposicionId])
+  @@map("rendiciones")
+}
+
+model DocumentoDescargo {
+  id                 String                @id @default(uuid())
+  rendicionId        String
+  tipoDocumento      TipoDocumentoDescargo @default(FACTURA_COMPRA)
+  numeroDocumento    String
+  nitCiEmisor        String
+  razonSocial        String
+  fechaEmision       DateTime              @db.Date
+  codigoAutorizacion String?
+  codigoControl      String?
+  partidaId          String
+  importe            Decimal               @db.Decimal(14, 2)
+  concepto           String                @db.Text
+  createdAt          DateTime              @default(now()) @db.Timestamptz
+  updatedAt          DateTime              @updatedAt @db.Timestamptz
+
+  rendicion          Rendicion             @relation(fields: [rendicionId], references: [id], onDelete: Cascade)
+  partida            Partida               @relation(fields: [partidaId], references: [id])
+
+  @@index([rendicionId])
+  @@index([partidaId])
+  @@map("documentos_descargo")
 }
 
 model Auditoria {
@@ -217,3 +418,84 @@ model Auditoria {
 
   @@map("auditorias")
 }
+
+model Reposicion {
+  id                   String            @id @default(uuid())
+  numeroReposicion     String            @unique // e.g. "REP-LPZ-2026-0001"
+  correlativo          Int
+  unidadId             String
+  gestion              Int
+  cajaAperturaId       String
+  montoTotal           Decimal           @db.Decimal(14, 2)
+  estado               EstadoReposicion  @default(BORRADOR)
+  fechaSolicitud       DateTime          @default(now()) @db.Timestamptz
+  fechaAprobacion      DateTime?         @db.Timestamptz
+  fechaEfectuada       DateTime?         @db.Timestamptz
+  comprobantePago      String?           // Nro cheque o comprobante transferencia DAF
+  bancoOrigen          String?           // e.g. "Banco Unión"
+  observaciones        String?           @db.Text
+  motivoRechazo        String?           @db.Text
+  solicitadoPorId      String
+  aprobadoPorId        String?
+  createdAt            DateTime          @default(now()) @db.Timestamptz
+  updatedAt            DateTime          @updatedAt @db.Timestamptz
+
+  unidad               Unit              @relation(fields: [unidadId], references: [id])
+  cajaApertura         CajaApertura      @relation(fields: [cajaAperturaId], references: [id])
+  solicitadoPor        User              @relation("ReposicionesSolicitadas", fields: [solicitadoPorId], references: [id])
+  aprobadoPor          User?             @relation("ReposicionesAprobadas", fields: [aprobadoPorId], references: [id])
+  rendiciones          Rendicion[]
+  movimientoIngreso    MovimientoEfectivo?
+
+  @@unique([cajaAperturaId, correlativo])
+  @@index([unidadId, gestion])
+  @@index([cajaAperturaId, estado])
+  @@map("reposiciones")
+}
+
+model ArqueoCaja {
+  id                   String        @id @default(uuid())
+  numeroActa           String        @unique // e.g. "ARQ-LPZ-2026-0001"
+  correlativo          Int
+  unidadId             String
+  gestion              Int
+  cajaAperturaId       String
+  tipoArqueo          TipoArqueo    @default(PERIODICO)
+  fechaArqueo          DateTime      @default(now()) @db.Timestamptz
+  horaArqueo           String?       // "10:30"
+  
+  // Arqueo físico: billetes y monedas (JSON con cantidades de 200, 100, 50, 20, 10, 5, 2, 1, 0.50, 0.20, 0.10)
+  billeteoJson         String        @db.Text
+  totalBilletes        Decimal       @db.Decimal(14, 2)
+  totalMonedas         Decimal       @db.Decimal(14, 2)
+  totalEfectivo        Decimal       @db.Decimal(14, 2)
+  
+  // Documentos en caja
+  totalValesPendientes Decimal       @db.Decimal(14, 2)
+  totalRendiciones     Decimal       @db.Decimal(14, 2)
+  totalGeneral         Decimal       @db.Decimal(14, 2)
+  
+  // Comparación contra fondo institucional
+  fondoAutorizado      Decimal       @db.Decimal(14, 2)
+  diferencia           Decimal       @db.Decimal(14, 2)
+  resultado            EstadoArqueo  @default(CONFORME)
+  
+  // Participantes / Firmas
+  custodioNombre       String
+  auditorNombre        String
+  testigoNombre        String?
+  observaciones        String?       @db.Text
+  
+  realizadoPorId       String
+  createdAt            DateTime      @default(now()) @db.Timestamptz
+  updatedAt            DateTime      @updatedAt @db.Timestamptz
+
+  unidad               Unit          @relation(fields: [unidadId], references: [id])
+  cajaApertura         CajaApertura  @relation(fields: [cajaAperturaId], references: [id])
+  realizadoPor         User          @relation("ArqueosRealizados", fields: [realizadoPorId], references: [id])
+
+  @@unique([cajaAperturaId, correlativo])
+  @@index([unidadId, gestion])
+  @@map("arqueos_caja")
+}
+

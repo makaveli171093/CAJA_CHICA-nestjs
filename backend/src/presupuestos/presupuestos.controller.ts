@@ -25,7 +25,7 @@ export class PresupuestosController {
   constructor(private readonly presupuestosService: PresupuestosService) {}
 
   @Post()
-  @Roles(RolUsuario.ADMINISTRADOR)
+  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO)
   @ApiOperation({ summary: 'Asignar presupuesto inicial a una partida para una unidad y gestión' })
   @ApiResponse({ status: 201, description: 'Presupuesto asignado con éxito.' })
   create(
@@ -62,7 +62,7 @@ export class PresupuestosController {
   }
 
   @Patch(':id')
-  @Roles(RolUsuario.ADMINISTRADOR)
+  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO)
   @ApiOperation({ summary: 'Ajustar monto presupuestado con motivo obligatorio e historial' })
   update(
     @Param('id') id: string,

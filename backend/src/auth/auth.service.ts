@@ -136,7 +136,12 @@ export class AuthService {
     });
 
     let accessibleUnits: any[] = [];
-    if (user.rol === RolUsuario.ADMINISTRADOR) {
+    const isGlobalRole =
+      user.rol === RolUsuario.ADMINISTRADOR ||
+      user.rol === RolUsuario.FINANCIERO ||
+      user.rol === RolUsuario.GERENCIA;
+
+    if (isGlobalRole) {
       accessibleUnits = await this.prisma.unit.findMany({
         where: { activo: true },
         orderBy: { codigo: 'asc' },
@@ -180,7 +185,12 @@ export class AuthService {
     }
 
     let accessibleUnits: any[] = [];
-    if (user.rol === RolUsuario.ADMINISTRADOR) {
+    const isGlobalRole =
+      user.rol === RolUsuario.ADMINISTRADOR ||
+      user.rol === RolUsuario.FINANCIERO ||
+      user.rol === RolUsuario.GERENCIA;
+
+    if (isGlobalRole) {
       accessibleUnits = await this.prisma.unit.findMany({
         where: { activo: true },
         orderBy: { codigo: 'asc' },

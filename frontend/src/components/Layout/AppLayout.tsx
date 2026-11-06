@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   AppShell,
@@ -14,6 +14,8 @@ import {
   Stack,
   Button,
   Loader,
+  ActionIcon,
+  Tooltip,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
@@ -30,6 +32,12 @@ import {
   IconBuilding,
   IconCalendar,
   IconPlus,
+  IconFileInvoice,
+  IconBuildingBank,
+  IconScale,
+  IconChartBar,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
 } from '@tabler/icons-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -37,7 +45,19 @@ export const AppLayout: React.FC<{
   currentGestion: number;
   onGestionChange: (g: number) => void;
 }> = ({ currentGestion, onGestionChange }) => {
-  const [opened, { toggle }] = useDisclosure();
+  const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure(false);
+  const [desktopOpened, setDesktopOpened] = useState<boolean>(() => {
+    const saved = localStorage.getItem('cps_sidebar_desktop_opened');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const toggleDesktop = () => {
+    setDesktopOpened((prev) => {
+      const next = !prev;
+      localStorage.setItem('cps_sidebar_desktop_opened', String(next));
+      return next;
+    });
+  };
   const { user, activeUnitId, activeUnit, accessibleUnits, unitsStatus, setActiveUnitId, logout } =
     useAuth();
   const navigate = useNavigate();
@@ -50,8 +70,13 @@ export const AppLayout: React.FC<{
 
   const navItems = [
     { label: 'Inicio (Saldos y Límites)', path: '/dashboard', icon: IconDashboard },
-    { label: 'Apertura de Caja', path: '/apertura', icon: IconLockOpen },
+    { label: 'Apertura de Caja', path: '/apertura', icon: IconLockOpen, hideFor: ['GERENCIA', 'FINANCIERO'] },
     { label: 'Presupuesto por Partida', path: '/presupuestos', icon: IconCoin },
+    { label: 'Pedidos y Anticipos', path: '/pedidos', icon: IconFileInvoice, hideFor: ['GERENCIA'] },
+    { label: 'Rendiciones (Form. 002)', path: '/rendiciones', icon: IconReceipt2 },
+    { label: 'Reposición de Fondos', path: '/reposiciones', icon: IconBuildingBank },
+    { label: 'Arqueos Físicos de Caja', path: '/arqueos', icon: IconScale },
+    { label: 'Reportes y Métricas', path: '/reportes', icon: IconChartBar },
     {
       label: 'Responsables de Caja',
       path: '/responsables',
@@ -84,9 +109,12 @@ export const AppLayout: React.FC<{
     },
   ];
 
-  const filteredNavItems = navItems.filter(
-    (item) => !item.adminOnly || user?.rol === 'ADMINISTRADOR',
-  );
+  const filteredNavItems = navItems.filter((item: any) => {
+    if (item.adminOnly && user?.rol !== 'ADMINISTRADOR') return false;
+    if (item.hideFor && item.hideFor.includes(user?.rol)) return false;
+    return true;
+  });
+
 
   const unitOptions = accessibleUnits.map((u) => ({
     value: u.id,
@@ -101,14 +129,38 @@ export const AppLayout: React.FC<{
       navbar={{
         width: 270,
         breakpoint: 'sm',
-        collapsed: { mobile: !opened },
+        collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
       }}
       padding="md"
     >
       <AppShell.Header style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0' }}>
         <Group h="100%" px="md" justify="space-between">
-          <Group>
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+          <Group gap="sm">
+            {/* Botón Móvil */}
+            <Burger opened={mobileOpened} onClick={toggleMobile} hiddenFrom="sm" size="sm" aria-label="Alternar menú" />
+
+            {/* Botón Escritorio para ocultar/mostrar barra lateral */}
+            <Tooltip
+              label={desktopOpened ? 'Ocultar barra lateral' : 'Mostrar barra lateral'}
+              withArrow
+              position="bottom-start"
+            >
+              <ActionIcon
+                variant="subtle"
+                color="cpsTeal"
+                size="lg"
+                onClick={toggleDesktop}
+                visibleFrom="sm"
+                aria-label={desktopOpened ? 'Ocultar barra lateral' : 'Mostrar barra lateral'}
+              >
+                {desktopOpened ? (
+                  <IconLayoutSidebarLeftCollapse size={22} color="#007B6D" />
+                ) : (
+                  <IconLayoutSidebarLeftExpand size={22} color="#007B6D" />
+                )}
+              </ActionIcon>
+            </Tooltip>
+
             <Box>
               <Text fw={800} size="md" c="#007B6D" style={{ letterSpacing: '0.5px' }}>
                 CAJA PETROLERA DE SALUD
@@ -206,10 +258,19 @@ export const AppLayout: React.FC<{
                       <Badge
                         size="xs"
                         variant="light"
-                        color={user?.rol === 'ADMINISTRADOR' ? 'blue' : 'teal'}
+                        color={
+                          user?.rol === 'ADMINISTRADOR'
+                            ? 'blue'
+                            : user?.rol === 'FINANCIERO'
+                            ? 'violet'
+                            : user?.rol === 'GERENCIA'
+                            ? 'indigo'
+                            : 'teal'
+                        }
                       >
                         {user?.rol}
                       </Badge>
+
                     </Box>
                   </Group>
                 </UnstyledButton>
@@ -284,7 +345,7 @@ export const AppLayout: React.FC<{
                 key={item.path}
                 onClick={() => {
                   navigate(item.path);
-                  if (opened) toggle();
+                  closeMobile();
                 }}
                 p="xs"
                 style={{

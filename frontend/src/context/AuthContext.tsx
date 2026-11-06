@@ -42,11 +42,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const resolveUnits = async (userData: User, currentActiveId: string | null) => {
     let units: Unit[] = userData.unidades || [];
 
-    // Si es administrador y no vinieron unidades o se requiere refrescar catálogo institucional
-    if (userData.rol === 'ADMINISTRADOR') {
+    const isGlobalRole =
+      userData.rol === 'ADMINISTRADOR' ||
+      userData.rol === 'FINANCIERO' ||
+      userData.rol === 'GERENCIA';
+
+    // Si es un rol global/institucional y no vinieron unidades o se requiere refrescar catálogo institucional
+    if (isGlobalRole) {
       try {
         const res = await api.get<{ items: Unit[] }>('/unidades?activo=true&limit=100');
-        if (res.data?.items) {
+        if (res.data?.items && res.data.items.length > 0) {
           units = res.data.items;
         }
       } catch {
@@ -62,7 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setActiveUnitIdState(selected);
     } else {
       setActiveUnitIdState(null);
-      if (userData.rol === 'ADMINISTRADOR') {
+      if (isGlobalRole) {
         setUnitsStatus('empty');
       } else {
         setUnitsStatus('no_permission');

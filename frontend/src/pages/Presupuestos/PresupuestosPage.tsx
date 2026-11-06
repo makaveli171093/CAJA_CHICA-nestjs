@@ -34,6 +34,7 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { PresupuestoPartida, Partida } from '../../types';
 import { PartidasPresupuestosModal } from '../../components/Presupuestos/PartidasPresupuestosModal';
+import { formatDateTimeToBO } from '../../utils/dateUtils';
 
 export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ currentGestion }) => {
   const { activeUnitId, activeUnit, accessibleUnits, setActiveUnitId, user } = useAuth();
@@ -41,10 +42,14 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
   const [partidasDisponibles, setPartidasDisponibles] = useState<Partida[]>([]);
   const [totalPresupuesto, setTotalPresupuesto] = useState('0.00');
   const [totalPresupuestoDeshabilitado, setTotalPresupuestoDeshabilitado] = useState('0.00');
+  const [totalComprometido, setTotalComprometido] = useState('0.00');
+  const [totalDisponible, setTotalDisponible] = useState('0.00');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const isAdmin = user?.rol === 'ADMINISTRADOR';
+  const isFinanciero = user?.rol === 'FINANCIERO';
+  const canManage = isAdmin || isFinanciero;
 
   // Modal Integral de Partidas y Presupuestos
   const [configModalOpened, setConfigModalOpened] = useState(false);
@@ -68,6 +73,8 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
       setPartidasDisponibles([]);
       setTotalPresupuesto('0.00');
       setTotalPresupuestoDeshabilitado('0.00');
+      setTotalComprometido('0.00');
+      setTotalDisponible('0.00');
       return;
     }
 
@@ -83,6 +90,8 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
           totalPresupuesto: string;
           totalPresupuestoHabilitado?: string;
           totalPresupuestoDeshabilitado?: string;
+          totalComprometido?: string;
+          totalDisponible?: string;
         }>(`/presupuestos?unidadId=${activeUnitId}&gestion=${currentGestion}`),
         api.get<{ items: Partida[] }>(
           `/partidas?activo=true&unidadId=${activeUnitId}&limit=100`,
@@ -94,6 +103,8 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
         resPresupuestos.data.totalPresupuestoHabilitado || resPresupuestos.data.totalPresupuesto || '0.00',
       );
       setTotalPresupuestoDeshabilitado(resPresupuestos.data.totalPresupuestoDeshabilitado || '0.00');
+      setTotalComprometido(resPresupuestos.data.totalComprometido || '0.00');
+      setTotalDisponible(resPresupuestos.data.totalDisponible || '0.00');
       setPartidasDisponibles(resPartidas.data.items);
     } catch (err: any) {
       notifications.show({
@@ -245,7 +256,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
             </Text>
           </Box>
           <Group gap="sm">
-            {isAdmin && (
+            {canManage && (
               <Button
                 color="cpsTeal"
                 variant="filled"
@@ -255,7 +266,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
                 Partidas y presupuestos
               </Button>
             )}
-            {isAdmin && partidasDisponibles.length > 0 && (
+            {canManage && partidasDisponibles.length > 0 && (
               <Button
                 color="cpsTeal"
                 variant="light"
@@ -277,7 +288,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
           color="orange"
           variant="light"
         >
-          {isAdmin ? (
+          {canManage ? (
             <>
               <Text size="sm">
                 Esta unidad institucional no cuenta con partidas presupuestarias habilitadas en su catálogo.
@@ -306,13 +317,29 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
       {/* Resumen Total */}
       <Paper p="md" radius="md" withBorder style={{ backgroundColor: '#ffffff' }}>
         <Group justify="space-between" wrap="wrap" gap="md">
-          <Group gap="xl">
+          <Group gap="xl" wrap="wrap">
             <Box>
               <Text size="xs" c="dimmed" fw={700}>
-                TOTAL PRESUPUESTO HABILITADO (ACTIVO) GESTIÓN {currentGestion}
+                TOTAL PRESUPUESTO ASIGNADO (GESTIÓN {currentGestion})
               </Text>
-              <Title order={2} c="#007B6D" mt={4}>
+              <Title order={3} c="#007B6D" mt={4}>
                 Bs. {totalPresupuesto}
+              </Title>
+            </Box>
+            <Box>
+              <Text size="xs" c="dimmed" fw={700}>
+                COMPROMETIDO EN ANTICIPOS
+              </Text>
+              <Title order={3} c="#dc2626" mt={4}>
+                Bs. {totalComprometido}
+              </Title>
+            </Box>
+            <Box>
+              <Text size="xs" c="dimmed" fw={700}>
+                DISPONIBLE PRESUPUESTARIO
+              </Text>
+              <Title order={3} c="#1e40af" mt={4}>
+                Bs. {totalDisponible}
               </Title>
             </Box>
             {parseFloat(totalPresupuestoDeshabilitado) > 0 && (
@@ -351,8 +378,10 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
               <Table.Tr style={{ backgroundColor: '#f1f5f9' }}>
                 <Table.Th style={{ width: 130 }}>Código Partida</Table.Th>
                 <Table.Th>Descripción Oficial</Table.Th>
-                <Table.Th style={{ width: 160, textAlign: 'center' }}>Estado Catálogo</Table.Th>
-                <Table.Th style={{ width: 180, textAlign: 'right' }}>Monto Asignado (Bs.)</Table.Th>
+                <Table.Th style={{ width: 140, textAlign: 'center' }}>Estado Catálogo</Table.Th>
+                <Table.Th style={{ width: 160, textAlign: 'right' }}>Asignado (Bs.)</Table.Th>
+                <Table.Th style={{ width: 160, textAlign: 'right' }}>Comprometido (Bs.)</Table.Th>
+                <Table.Th style={{ width: 160, textAlign: 'right' }}>Disponible (Bs.)</Table.Th>
                 <Table.Th style={{ width: 140, textAlign: 'center' }}>Acciones</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -387,14 +416,32 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
                     style={{
                       textAlign: 'right',
                       fontWeight: 700,
-                      color: item.habilitado === false ? '#64748b' : '#007B6D',
+                      color: item.habilitado === false ? '#64748b' : '#1e293b',
                     }}
                   >
                     Bs. {item.montoAsignado}
                   </Table.Td>
+                  <Table.Td
+                    style={{
+                      textAlign: 'right',
+                      fontWeight: 600,
+                      color: '#dc2626',
+                    }}
+                  >
+                    Bs. {item.comprometido || '0.00'}
+                  </Table.Td>
+                  <Table.Td
+                    style={{
+                      textAlign: 'right',
+                      fontWeight: 700,
+                      color: '#007B6D',
+                    }}
+                  >
+                    Bs. {item.disponible || item.montoAsignado}
+                  </Table.Td>
                   <Table.Td style={{ textAlign: 'center' }}>
                     <Group gap="xs" justify="center">
-                      {isAdmin && item.habilitado !== false && (
+                      {canManage && item.habilitado !== false && (
                         <Button
                           size="xs"
                           variant="subtle"
@@ -534,7 +581,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
                 {selectedItem.historial.map((h) => (
                   <Table.Tr key={h.id}>
                     <Table.Td style={{ fontSize: '11px' }}>
-                      {new Date(h.fecha).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })}
+                      {formatDateTimeToBO(h.fecha)}
                     </Table.Td>
                     <Table.Td style={{ fontWeight: 600 }}>Bs. {h.montoAnterior}</Table.Td>
                     <Table.Td style={{ fontWeight: 700, color: '#007B6D' }}>Bs. {h.montoNuevo}</Table.Td>

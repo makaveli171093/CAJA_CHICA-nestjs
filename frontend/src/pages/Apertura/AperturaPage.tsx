@@ -6,6 +6,7 @@ import {
   Stack,
   Group,
   TextInput,
+  Textarea,
   Select,
   Button,
   Badge,
@@ -30,11 +31,14 @@ import {
   IconBuilding,
   IconUserPlus,
   IconPlus,
+  IconEdit,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../services/api';
+import { api, corregirApertura } from '../../services/api';
 import { CajaApertura, Responsable } from '../../types';
+import { DateInputBO } from '../../components/common/DateInputBO';
+import { formatDateToBO, formatDateTimeToBO } from '../../utils/dateUtils';
 
 export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGestion }) => {
   const { activeUnitId, activeUnit, accessibleUnits, setActiveUnitId, user } = useAuth();
@@ -51,6 +55,17 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
   // Modal de confirmación sensible
   const [confirmModalOpened, { open: openConfirmModal, close: closeConfirmModal }] =
     useDisclosure(false);
+
+  // Modal Corregir Apertura
+  const [corregirModalOpened, { open: openCorregirModal, close: closeCorregirModal }] =
+    useDisclosure(false);
+  const [corregirForm, setCorregirForm] = useState({
+    justificacion: '',
+    responsableId: '',
+    fechaApertura: '',
+    docAutorizacion: '',
+    compIngreso: '',
+  });
 
   // Formulario
   const [formData, setFormData] = useState({
@@ -199,6 +214,52 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
       });
     } finally {
       setIsConfirming(false);
+    }
+  };
+
+  const handleOpenCorregirModal = () => {
+    if (!apertura) return;
+    setCorregirForm({
+      justificacion: '',
+      responsableId: apertura.responsableId,
+      fechaApertura: apertura.fechaApertura.slice(0, 10),
+      docAutorizacion: apertura.docAutorizacion,
+      compIngreso: apertura.compIngreso,
+    });
+    openCorregirModal();
+  };
+
+  const handleConfirmCorregir = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!apertura) return;
+    if (!corregirForm.justificacion.trim() || corregirForm.justificacion.trim().length < 10) {
+      notifications.show({
+        title: 'Justificación insuficiente',
+        message: 'Debe ingresar una justificación formal obligatoria de al menos 10 caracteres.',
+        color: 'red',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await corregirApertura(apertura.id, corregirForm);
+      setApertura(res.caja);
+      closeCorregirModal();
+      notifications.show({
+        title: 'Datos de Apertura Corregidos',
+        message: 'Las modificaciones y la justificación fueron asentadas en auditoría.',
+        color: 'teal',
+      });
+      fetchData();
+    } catch (err: any) {
+      notifications.show({
+        title: 'Error al corregir apertura',
+        message: err.response?.data?.message || 'No se pudo aplicar la corrección.',
+        color: 'red',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -388,6 +449,17 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
                   ? 'Modificar Datos de la Apertura (Borrador)'
                   : 'Formulario de Nueva Apertura de Caja Chica'}
               </Title>
+              {isConfirmed && (isAdmin || user?.rol === 'FINANCIERO') && (
+                <Button
+                  size="xs"
+                  color="orange"
+                  variant="outline"
+                  leftSection={<IconEdit size={14} />}
+                  onClick={handleOpenCorregirModal}
+                >
+                  Corregir Datos Formales
+                </Button>
+              )}
               {hasNoApertura && responsables.length > 0 && (
                 <Badge color="blue" variant="light">
                   Listo para registrar
@@ -415,11 +487,10 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
                 disabled={isConfirmed || responsables.length === 0}
               />
 
-              <TextInput
+              <DateInputBO
                 label="Fecha Oficial de Apertura"
-                type="date"
                 value={formData.fechaApertura}
-                onChange={(e) => setFormData({ ...formData, fechaApertura: e.currentTarget.value })}
+                onChange={(val) => setFormData({ ...formData, fechaApertura: val })}
                 required
                 disabled={isConfirmed}
               />
@@ -512,7 +583,7 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               {apertura.movimientos.map((m) => (
                 <Table.Tr key={m.id}>
                   <Table.Td style={{ fontSize: '12px' }}>
-                    {new Date(m.fecha).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })}
+                    {formatDateTimeToBO(m.fecha)}
                   </Table.Td>
                   <Table.Td>
                     <Badge color="teal" variant="light">
@@ -570,6 +641,78 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
             </Button>
           </Group>
         </Stack>
+      </Modal>
+      {/* Modal Corregir Datos de Apertura */}
+      <Modal
+        opened={corregirModalOpened}
+        onClose={closeCorregirModal}
+        title={
+          <Group gap="xs">
+            <IconEdit color="#ea580c" size={20} />
+            <Text fw={700} c="#1e293b">
+              Corregir Datos Formales de Apertura
+            </Text>
+          </Group>
+        }
+        size="md"
+      >
+        <form onSubmit={handleConfirmCorregir}>
+          <Stack gap="md">
+            <Alert icon={<IconAlertTriangle size={18} />} color="orange">
+              Por normativa contable, los importes de Fondo Autorizado (Bs. {apertura?.montoAutorizado}) e Importe Recibido (Bs. {apertura?.importeRecibido}) se mantienen inmutables para proteger el libro diario de efectivo. Puede corregir el responsable designado, fecha o referencias documentales. Esta acción exige justificación formal obligatoria y queda registrada en auditoría.
+            </Alert>
+
+            <Textarea
+              label="Motivo o Justificación de la Corrección *"
+              placeholder="Indique el motivo formal del ajuste (ej. Corrección de error de tipeo en número de cheque DAF)..."
+              required
+              minRows={2}
+              value={corregirForm.justificacion}
+              onChange={(e) => setCorregirForm({ ...corregirForm, justificacion: e.currentTarget.value })}
+            />
+
+            <Select
+              label="Responsable Designado de Caja Chica"
+              data={responsables.map((r) => ({
+                value: r.id,
+                label: `${r.nombres} ${r.apellidos} - CI: ${r.carnetIdentidad} (${r.cargo})`,
+              }))}
+              value={corregirForm.responsableId}
+              onChange={(val) => setCorregirForm({ ...corregirForm, responsableId: val || '' })}
+              required
+            />
+
+            <DateInputBO
+              label="Fecha Oficial de Apertura"
+              value={corregirForm.fechaApertura}
+              onChange={(val) => setCorregirForm({ ...corregirForm, fechaApertura: val })}
+              required
+            />
+
+            <TextInput
+              label="Documento de Autorización / Resolución Administrativa"
+              value={corregirForm.docAutorizacion}
+              onChange={(e) => setCorregirForm({ ...corregirForm, docAutorizacion: e.currentTarget.value })}
+              required
+            />
+
+            <TextInput
+              label="Comprobante de Ingreso / Cheque Institucional"
+              value={corregirForm.compIngreso}
+              onChange={(e) => setCorregirForm({ ...corregirForm, compIngreso: e.currentTarget.value })}
+              required
+            />
+
+            <Group justify="flex-end" mt="md">
+              <Button variant="default" onClick={closeCorregirModal} disabled={isSubmitting}>
+                Cancelar
+              </Button>
+              <Button color="orange" type="submit" loading={isSubmitting}>
+                Guardar Corrección Formal
+              </Button>
+            </Group>
+          </Stack>
+        </form>
       </Modal>
     </Stack>
   );

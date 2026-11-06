@@ -13,6 +13,7 @@ import { CreatePresupuestoDto } from './dto/create-presupuesto.dto';
 import { UpdatePresupuestoDto } from './dto/update-presupuesto.dto';
 import { AuthenticatedUser } from '../common/decorators';
 import { RolUsuario } from '@prisma/client';
+import { calcularDisponibilidadPresupuesto } from '../common/utils/presupuesto-calculo';
 
 @Injectable()
 export class PresupuestosService {
@@ -22,15 +23,21 @@ export class PresupuestosService {
   ) {}
 
   private checkUnitPermission(unidadId: string, currentUser: AuthenticatedUser) {
-    if (currentUser.rol === RolUsuario.ADMINISTRADOR) return;
+    if (
+      currentUser.rol === RolUsuario.ADMINISTRADOR ||
+      currentUser.rol === RolUsuario.FINANCIERO ||
+      currentUser.rol === RolUsuario.GERENCIA
+    ) {
+      return;
+    }
     if (!currentUser.unidades.includes(unidadId)) {
       throw new ForbiddenException('No tiene permisos para operar en esta unidad.');
     }
   }
 
   async create(createDto: CreatePresupuestoDto, currentUser: AuthenticatedUser) {
-    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
-      throw new ForbiddenException('Solo el administrador puede asignar presupuestos a partidas.');
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR && currentUser.rol !== RolUsuario.FINANCIERO) {
+      throw new ForbiddenException('Solo el administrador o financiero pueden asignar presupuestos a partidas.');
     }
     this.checkUnitPermission(createDto.unidadId, currentUser);
 
@@ -123,7 +130,7 @@ export class PresupuestosService {
   }) {
     this.checkUnitPermission(params.unidadId, params.currentUser);
 
-    const [presupuestos, asignaciones] = await Promise.all([
+    const [presupuestos, asignaciones, anticipos] = await Promise.all([
       this.prisma.presupuestoPartida.findMany({
         where: {
           unidadId: params.unidadId,
@@ -143,20 +150,45 @@ export class PresupuestosService {
       this.prisma.unidadPartida.findMany({
         where: { unidadId: params.unidadId },
       }),
+      this.prisma.anticipo.findMany({
+        where: {
+          cajaApertura: {
+            unidadId: params.unidadId,
+            gestion: Number(params.gestion),
+          },
+          estado: 'PENDIENTE',
+        },
+        include: {
+          pedido: { select: { partidaId: true } },
+        },
+      }),
     ]);
 
     const mapaHabilitadas = new Map<string, boolean>();
     asignaciones.forEach((a) => mapaHabilitadas.set(a.partidaId, a.activo));
 
+    const mapaComprometido = new Map<string, Decimal>();
+    anticipos.forEach((ant) => {
+      const pId = ant.pedido.partidaId;
+      const prev = mapaComprometido.get(pId) || new Decimal('0.00');
+      mapaComprometido.set(pId, prev.plus(new Decimal(ant.monto.toString())));
+    });
+
     let totalHabilitado = new Decimal('0.00');
     let totalDeshabilitado = new Decimal('0.00');
+    let totalComprometido = new Decimal('0.00');
 
     const formatted = presupuestos.map((item) => {
       const habilitado = mapaHabilitadas.get(item.partidaId) || false;
       const itemDecimal = new Decimal(item.montoAsignado.toString());
+      const comprometidoPartida = mapaComprometido.get(item.partidaId) || new Decimal('0.00');
+      // REGLA CENTRALIZADA CPS: disponible = asignado - comprometidoPendiente - ejecutado
+      const calculoPres = calcularDisponibilidadPresupuesto(itemDecimal, comprometidoPartida, 0);
+      const disponiblePartida = calculoPres.disponible;
 
       if (habilitado) {
         totalHabilitado = totalHabilitado.plus(itemDecimal);
+        totalComprometido = totalComprometido.plus(comprometidoPartida);
       } else {
         totalDeshabilitado = totalDeshabilitado.plus(itemDecimal);
       }
@@ -165,6 +197,8 @@ export class PresupuestosService {
         ...item,
         habilitado,
         montoAsignado: item.montoAsignado.toFixed(2),
+        comprometido: comprometidoPartida.toFixed(2),
+        disponible: disponiblePartida.toFixed(2),
         historial: item.historial.map((h) => ({
           ...h,
           montoAnterior: h.montoAnterior.toFixed(2),
@@ -173,11 +207,15 @@ export class PresupuestosService {
       };
     });
 
+    const totalDisponible = totalHabilitado.minus(totalComprometido);
+
     return {
       items: formatted,
       totalPresupuesto: totalHabilitado.toFixed(2),
       totalPresupuestoHabilitado: totalHabilitado.toFixed(2),
       totalPresupuestoDeshabilitado: totalDeshabilitado.toFixed(2),
+      totalComprometido: totalComprometido.toFixed(2),
+      totalDisponible: totalDisponible.toFixed(2),
       cantidadPartidas: formatted.length,
       cantidadPartidasHabilitadas: formatted.filter((i) => i.habilitado).length,
       cantidadPartidasDeshabilitadas: formatted.filter((i) => !i.habilitado).length,
@@ -218,8 +256,8 @@ export class PresupuestosService {
     updateDto: UpdatePresupuestoDto,
     currentUser: AuthenticatedUser,
   ) {
-    if (currentUser.rol !== RolUsuario.ADMINISTRADOR) {
-      throw new ForbiddenException('Solo el administrador puede modificar asignaciones presupuestarias.');
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR && currentUser.rol !== RolUsuario.FINANCIERO) {
+      throw new ForbiddenException('Solo el administrador o financiero pueden modificar asignaciones presupuestarias.');
     }
 
     const item = await this.prisma.presupuestoPartida.findUnique({
@@ -249,33 +287,73 @@ export class PresupuestosService {
     }
 
     const montoAnterior = item.montoAsignado;
-    const montoNuevo = new Prisma.Decimal(updateDto.montoAsignado);
+    const montoNuevoDec = new Decimal(updateDto.montoAsignado);
+    const montoNuevo = new Prisma.Decimal(montoNuevoDec.toFixed(2));
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const presupuesto = await tx.presupuestoPartida.update({
-        where: { id },
-        data: {
-          montoAsignado: montoNuevo,
-        },
-        include: {
-          partida: true,
-          unidad: true,
-        },
-      });
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        // 1. Bloqueo estricto de fila en presupuestos_partidas para serializar con entregas concurrentes
+        await tx.$queryRaw`
+          SELECT id FROM "presupuestos_partidas" WHERE id = ${id} FOR UPDATE
+        `;
 
-      await tx.presupuestoHistorial.create({
-        data: {
-          presupuestoPartidaId: id,
-          montoAnterior,
-          montoNuevo,
-          motivo: updateDto.motivo.trim(),
-          actorId: currentUser.id,
-          actorUsername: currentUser.username,
-        },
-      });
+        // 2. Consultar anticipos pendientes dentro de la transacción protegida
+        const anticiposPendientes = await tx.anticipo.findMany({
+          where: {
+            cajaApertura: {
+              unidadId: item.unidadId,
+              gestion: item.gestion,
+            },
+            pedido: {
+              partidaId: item.partidaId,
+            },
+            estado: 'PENDIENTE',
+          },
+          select: { monto: true },
+        });
 
-      return presupuesto;
-    });
+        let totalComprometido = new Decimal('0.00');
+        for (const ant of anticiposPendientes) {
+          totalComprometido = totalComprometido.plus(new Decimal(ant.monto.toString()));
+        }
+        const totalEjecutado = new Decimal('0.00'); // Fase 2A: sin descargos ejecutados aún
+        // REGLA CENTRALIZADA CPS: minimoPermitidoParaAjuste = comprometidoPendiente + ejecutado
+        const calculo = calcularDisponibilidadPresupuesto(item.montoAsignado.toString(), totalComprometido, totalEjecutado);
+
+        if (montoNuevoDec.lessThan(calculo.minimoPermitidoParaAjuste)) {
+          throw new BadRequestException(
+            `No se puede reducir el presupuesto por debajo de Bs ${calculo.minimoPermitidoParaAjuste.toFixed(2)}, monto actualmente comprometido en anticipos pendientes de rendición más gasto ejecutado.`,
+          );
+        }
+
+        const presupuesto = await tx.presupuestoPartida.update({
+          where: { id },
+          data: {
+            montoAsignado: montoNuevo,
+          },
+          include: {
+            partida: true,
+            unidad: true,
+          },
+        });
+
+        await tx.presupuestoHistorial.create({
+          data: {
+            presupuestoPartidaId: id,
+            montoAnterior,
+            montoNuevo,
+            motivo: updateDto.motivo.trim(),
+            actorId: currentUser.id,
+            actorUsername: currentUser.username,
+          },
+        });
+
+        return presupuesto;
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
 
     await this.auditService.log({
       actorId: currentUser.id,

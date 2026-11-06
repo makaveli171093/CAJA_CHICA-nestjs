@@ -12,6 +12,8 @@ import { PartidasService } from '../partidas/partidas.service';
 import { UnitsService } from '../units/units.service';
 import { UsersService } from '../users/users.service';
 import { ResponsablesService } from '../responsables/responsables.service';
+import { CreateUserDto } from '../users/dto/create-user.dto';
+import { UpdateUserDto } from '../users/dto/update-user.dto';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
@@ -39,8 +41,14 @@ describe('Pruebas de Integración Reales con PostgreSQL (caja_chica_cps_test)', 
 
   afterAll(async () => {
     if (prisma) {
-      // Limpiar datos ficticios exclusivamente de la base de prueba
-      await prisma.movimientoEfectivo.deleteMany();
+      await (prisma as any).arqueoCaja?.deleteMany();
+      await (prisma as any).movimientoEfectivo?.deleteMany();
+      await (prisma as any).documentoDescargo?.deleteMany();
+      await (prisma as any).rendicion?.deleteMany();
+      await (prisma as any).reposicion?.deleteMany();
+      await prisma.anticipo.deleteMany();
+      await prisma.pedido.deleteMany();
+
       await prisma.cajaApertura.deleteMany();
       await prisma.presupuestoHistorial.deleteMany();
       await prisma.presupuestoPartida.deleteMany();
@@ -1060,6 +1068,154 @@ describe('Pruebas de Integración Reales con PostgreSQL (caja_chica_cps_test)', 
     await expect(
       unitsService.findOne(u2.id, encargadoU1 as any),
     ).rejects.toThrow();
+  });
+
+  it('11. Creación y actualización de funcionario encargado con validación estricta de DTOs y preservación de credenciales', async () => {
+    const auditService = { log: jest.fn().mockResolvedValue({}) };
+    const usersService = new UsersService(prisma as any, auditService as any);
+
+    const adminUser = {
+      id: 'admin-uuid-11',
+      username: 'admin11',
+      rol: RolUsuario.ADMINISTRADOR,
+      unidades: [],
+    };
+
+    // Crear unidad de prueba para la designación
+    const unitDesignacion = await prisma.unit.create({
+      data: {
+        codigo: 'U-DESIG-11',
+        nombre: 'Administración Policonsultorio Test',
+        dependencia: 'Regional La Paz',
+      },
+    });
+
+    // 1. VERIFICACIÓN DE CREACIÓN: El payload de creación requiere username
+    const rawCreatePayload = {
+      username: 'test_encargado_11',
+      password: 'PasswordInicial#2026',
+      nombres: 'Funcionario',
+      apellidos: 'Prueba',
+      nombreCompleto: 'Funcionario Prueba',
+      email: 'fprueba@cps.org.bo',
+      rol: RolUsuario.ENCARGADO,
+      activo: true,
+      carnetIdentidad: '7766554 LP',
+      cargo: 'Encargado de Caja Chica',
+      designaciones: [
+        {
+          unidadId: unitDesignacion.id,
+          documentoDesignacion: 'Memo Inicial 001/2026',
+          fechaDesignacion: '2026-01-10',
+          cargo: 'Encargado de Caja Chica',
+        },
+      ],
+    };
+
+    // Validar con whitelist: true, forbidNonWhitelisted: true
+    const createDto = plainToInstance(CreateUserDto, rawCreatePayload);
+    const createErrors = await validate(createDto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+    expect(createErrors.length).toBe(0);
+
+    const createdUser = await usersService.create(createDto, adminUser as any);
+    expect(createdUser).toBeDefined();
+    expect(createdUser.username).toBe('test_encargado_11');
+    expect(createdUser.rol).toBe(RolUsuario.ENCARGADO);
+
+    // Obtener passwordHash original de la base de datos
+    const userInDbBefore = await prisma.user.findUnique({
+      where: { id: createdUser.id },
+    });
+    expect(userInDbBefore).not.toBeNull();
+    const originalPasswordHash = userInDbBefore!.passwordHash;
+    const initialUserCount = await prisma.user.count();
+
+    // 2. VERIFICACIÓN DE RECHAZO: Si se envía username en la actualización con forbidNonWhitelisted: true, debe fallar
+    const invalidUpdatePayloadWithUsername = {
+      username: 'test_encargado_11',
+      nombres: 'Funcionario Actualizado',
+      apellidos: 'Prueba Modificada',
+      nombreCompleto: 'Funcionario Actualizado Prueba Modificada',
+      carnetIdentidad: '7766554 LP',
+      cargo: 'Responsable Oficial de Caja Chica',
+    };
+
+    const invalidUpdateDto = plainToInstance(UpdateUserDto, invalidUpdatePayloadWithUsername);
+    const invalidErrors = await validate(invalidUpdateDto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+    expect(invalidErrors.length).toBeGreaterThan(0);
+    const hasUsernameError = invalidErrors.some((e) => e.property === 'username');
+    expect(hasUsernameError).toBe(true);
+
+    // 3. VERIFICACIÓN DE ACTUALIZACIÓN CORRECTA:
+    // Omitiendo username y enviando únicamente los campos permitidos por UpdateUserDto,
+    // actualizando carnet, cargo y completando designación formal sin cambiar contraseña
+    const validUpdatePayload = {
+      nombres: 'Funcionario Actualizado',
+      apellidos: 'Prueba Modificada',
+      nombreCompleto: 'Funcionario Actualizado Prueba Modificada',
+      email: 'fprueba_updated@cps.org.bo',
+      rol: RolUsuario.ENCARGADO,
+      activo: true,
+      carnetIdentidad: '7766554 LP',
+      cargo: 'Responsable Titular de Caja Chica',
+      designaciones: [
+        {
+          unidadId: unitDesignacion.id,
+          documentoDesignacion: 'Memo Designación Formal RRHH-045/2026',
+          fechaDesignacion: '2026-02-01',
+          cargo: 'Responsable Titular de Caja Chica',
+        },
+      ],
+    };
+
+    const validUpdateDto = plainToInstance(UpdateUserDto, validUpdatePayload);
+    const validErrors = await validate(validUpdateDto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+    expect(validErrors.length).toBe(0);
+
+    const updatedUser = await usersService.update(
+      createdUser.id,
+      validUpdateDto,
+      adminUser as any,
+    );
+
+    // 4. ASEGURAR PRESERVACIÓN DE IDENTIDAD, CONTRASEÑA, Y NO DUPLICACIÓN
+    expect(updatedUser.id).toBe(createdUser.id);
+    expect(updatedUser.username).toBe('test_encargado_11');
+    expect(updatedUser.cargo).toBe('Responsable Titular de Caja Chica');
+    expect(updatedUser.nombreCompleto).toBe('Funcionario Actualizado Prueba Modificada');
+
+    // Comprobar que no se duplicó el usuario
+    const finalUserCount = await prisma.user.count();
+    expect(finalUserCount).toBe(initialUserCount);
+
+    // Comprobar que el hash de la contraseña NO cambió
+    const userInDbAfter = await prisma.user.findUnique({
+      where: { id: createdUser.id },
+    });
+    expect(userInDbAfter!.passwordHash).toBe(originalPasswordHash);
+
+    // Comprobar que la designación fue actualizada en la entidad responsable
+    const responsables = await prisma.responsable.findMany({
+      where: { userId: createdUser.id, unidadId: unitDesignacion.id },
+    });
+    expect(responsables.length).toBe(1);
+    expect(responsables[0].documentoDesignacion).toBe('Memo Designación Formal RRHH-045/2026');
+    expect(responsables[0].cargo).toBe('Responsable Titular de Caja Chica');
+
+    // Comprobar la relación de unidad
+    const userUnits = await prisma.userUnit.findMany({
+      where: { userId: createdUser.id, unitId: unitDesignacion.id },
+    });
+    expect(userUnits.length).toBe(1);
   });
 });
 

@@ -16,6 +16,7 @@ import {
 import { IconSearch, IconHistory } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { api } from '../../services/api';
+import { formatDateTimeToBO } from '../../utils/dateUtils';
 
 interface AuditItem {
   id: string;
@@ -105,7 +106,7 @@ export const AuditoriaPage: React.FC = () => {
                 {items.map((it) => (
                   <Table.Tr key={it.id}>
                     <Table.Td style={{ fontSize: '0.8rem' }}>
-                      {new Date(it.fecha).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })}
+                      {formatDateTimeToBO(it.fecha)}
                     </Table.Td>
                     <Table.Td style={{ fontWeight: 600 }}>{it.actorUsername || 'SISTEMA'}</Table.Td>
                     <Table.Td>

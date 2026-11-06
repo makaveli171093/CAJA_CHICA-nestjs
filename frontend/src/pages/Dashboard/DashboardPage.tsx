@@ -25,11 +25,13 @@ import {
   IconLockOpen,
   IconBuilding,
   IconShieldLock,
+  IconClock,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { DashboardData } from '../../types';
+import { formatDateToBO, formatDateTimeToBO } from '../../utils/dateUtils';
 
 export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGestion }) => {
   const { activeUnitId, activeUnit, unitsStatus, user } = useAuth();
@@ -202,13 +204,13 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
         </Group>
       </Paper>
 
-      {/* Tarjetas de Saldos Reales */}
-      <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="md">
-        {/* 1. Fondo Autorizado */}
+      {/* Tarjetas de Saldos Reales y Compromisos */}
+      <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+        {/* 1. Fondo Autorizado (efectivo físico de caja) */}
         <Card shadow="xs" padding="md" radius="md" withBorder>
           <Group justify="space-between">
             <Text size="xs" c="dimmed" fw={700}>
-              FONDO AUTORIZADO
+              FONDO AUTORIZADO (EFECTIVO)
             </Text>
             <ThemeIcon color="teal" variant="light" size={32} radius="md">
               <IconCoin size={18} />
@@ -218,8 +220,13 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
             Bs. {data?.montoAutorizado || '0.00'}
           </Text>
           <Text size="xs" c="dimmed" mt={4}>
-            Monto asignado formalmente
+            Efectivo físico asignado a la caja
           </Text>
+          {data?.resumen?.totalPresupuestoAsignado && parseFloat(data.resumen.totalPresupuestoAsignado) > 0 && (
+            <Text size="xs" c="#007B6D" mt={4} fw={600}>
+              Presupuesto partidas: Bs. {data.resumen.totalPresupuestoAsignado}
+            </Text>
+          )}
         </Card>
 
         {/* 2. Efectivo Disponible */}
@@ -236,15 +243,15 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
             Bs. {data?.efectivoDisponible || '0.00'}
           </Text>
           <Text size="xs" c="dimmed" mt={4}>
-            Saldo registrado en efectivo
+            Saldo en caja (descontando anticipos)
           </Text>
         </Card>
 
-        {/* 3. Límite por Comprobante (10% del fondo autorizado) */}
+        {/* 3. Límite por Operación (10% del presupuesto asignado POA) */}
         <Card shadow="xs" padding="md" radius="md" withBorder>
           <Group justify="space-between">
             <Text size="xs" c="dimmed" fw={700}>
-              LÍMITE POR COMPROBANTE
+              LÍMITE POR OPERACIÓN
             </Text>
             <ThemeIcon color="cyan" variant="light" size={32} radius="md">
               <IconReceipt2 size={18} />
@@ -254,25 +261,61 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
             Bs. {data?.limitePorComprobante || '0.00'}
           </Text>
           <Text size="xs" c="dimmed" mt={4}>
-            10 % del fondo autorizado (Reglamento CPS)
+            10 % del presupuesto asignado POA (Reglamento CPS)
           </Text>
         </Card>
 
-        {/* 4. Total Presupuesto Asignado */}
+        {/* 4. Anticipos Pendientes de Rendición */}
         <Card shadow="xs" padding="md" radius="md" withBorder>
           <Group justify="space-between">
             <Text size="xs" c="dimmed" fw={700}>
-              PRESUPUESTO ASIGNADO
+              ANTICIPOS PENDIENTES
             </Text>
-            <ThemeIcon color="grape" variant="light" size={32} radius="md">
+            <ThemeIcon color="orange" variant="light" size={32} radius="md">
+              <IconClock size={18} />
+            </ThemeIcon>
+          </Group>
+          <Text fw={700} size="xl" mt="xs" c="#d97706">
+            Bs. {data?.totalAnticiposPendientes || '0.00'}
+          </Text>
+          <Text size="xs" c="dimmed" mt={4}>
+            {data?.cantidadAnticiposPendientes || 0} vale(s) 001 pendientes de rendición
+          </Text>
+        </Card>
+
+        {/* 5. Presupuesto Comprometido */}
+        <Card shadow="xs" padding="md" radius="md" withBorder>
+          <Group justify="space-between">
+            <Text size="xs" c="dimmed" fw={700}>
+              PRESUPUESTO COMPROMETIDO
+            </Text>
+            <ThemeIcon color="red" variant="light" size={32} radius="md">
               <IconFileText size={18} />
             </ThemeIcon>
           </Group>
-          <Text fw={700} size="xl" mt="xs" c="#7e22ce">
-            Bs. {data?.resumen.totalPresupuestoAsignado || '0.00'}
+          <Text fw={700} size="xl" mt="xs" c="#dc2626">
+            Bs. {data?.totalComprometido || '0.00'}
           </Text>
           <Text size="xs" c="dimmed" mt={4}>
-            Total en {data?.resumen.totalPartidasConfiguradas || 0} partidas asignadas
+            Comprometido por anticipos entregados
+          </Text>
+        </Card>
+
+        {/* 6. Presupuesto Disponible */}
+        <Card shadow="xs" padding="md" radius="md" withBorder>
+          <Group justify="space-between">
+            <Text size="xs" c="dimmed" fw={700}>
+              PRESUPUESTO DISPONIBLE
+            </Text>
+            <ThemeIcon color="grape" variant="light" size={32} radius="md">
+              <IconCoin size={18} />
+            </ThemeIcon>
+          </Group>
+          <Text fw={700} size="xl" mt="xs" c="#7e22ce">
+            Bs. {data?.totalDisponiblePresupuesto || data?.resumen.totalPresupuestoAsignado || '0.00'}
+          </Text>
+          <Text size="xs" c="dimmed" mt={4}>
+            De un total asignado de Bs. {data?.resumen.totalPresupuestoAsignado || '0.00'}
           </Text>
         </Card>
       </SimpleGrid>
@@ -307,7 +350,7 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
                 {caja.docAutorizacion}
               </Text>
               <Text size="xs" c="dimmed">
-                Fecha apertura: {new Date(caja.fechaApertura).toLocaleDateString('es-BO')}
+                Fecha apertura: {formatDateToBO(caja.fechaApertura)}
               </Text>
             </Box>
 
@@ -320,7 +363,7 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
               </Text>
               <Text size="xs" c="dimmed">
                 {caja.fechaConfirmacion
-                  ? `Confirmada: ${new Date(caja.fechaConfirmacion).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })}`
+                  ? `Confirmada: ${formatDateTimeToBO(caja.fechaConfirmacion)}`
                   : 'Pendiente de confirmación'}
               </Text>
             </Box>
@@ -375,7 +418,9 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
               <Table.Tr style={{ backgroundColor: '#f1f5f9' }}>
                 <Table.Th style={{ width: 140 }}>Código Partida</Table.Th>
                 <Table.Th>Descripción Oficial del Gasto</Table.Th>
-                <Table.Th style={{ width: 180, textAlign: 'right' }}>Presupuesto Asignado</Table.Th>
+                <Table.Th style={{ width: 150, textAlign: 'right' }}>Presupuesto Asignado</Table.Th>
+                <Table.Th style={{ width: 150, textAlign: 'right' }}>Comprometido</Table.Th>
+                <Table.Th style={{ width: 150, textAlign: 'right' }}>Disponible</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -391,6 +436,12 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
                   </Table.Td>
                   <Table.Td style={{ textAlign: 'right', fontWeight: 600 }}>
                     Bs. {item.montoAsignado}
+                  </Table.Td>
+                  <Table.Td style={{ textAlign: 'right', fontWeight: 600, color: '#dc2626' }}>
+                    Bs. {item.comprometido || '0.00'}
+                  </Table.Td>
+                  <Table.Td style={{ textAlign: 'right', fontWeight: 700, color: '#007B6D' }}>
+                    Bs. {item.disponible || item.montoAsignado}
                   </Table.Td>
                 </Table.Tr>
               ))}

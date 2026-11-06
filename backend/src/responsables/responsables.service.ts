@@ -17,7 +17,13 @@ export class ResponsablesService {
   ) {}
 
   private checkUnitPermission(unidadId: string, currentUser: AuthenticatedUser) {
-    if (currentUser.rol === RolUsuario.ADMINISTRADOR) return;
+    if (
+      currentUser.rol === RolUsuario.ADMINISTRADOR ||
+      currentUser.rol === RolUsuario.FINANCIERO ||
+      currentUser.rol === RolUsuario.GERENCIA
+    ) {
+      return;
+    }
     if (!currentUser.unidades.includes(unidadId)) {
       throw new ForbiddenException('No tiene permisos para gestionar responsables en esta unidad.');
     }
@@ -212,7 +218,10 @@ export class ResponsablesService {
       accion: 'ACTUALIZAR_RESPONSABLE',
       entidad: 'Responsable',
       entidadId: id,
-      detalle: data,
+      detalle: {
+        ...data,
+        justificacion: updateDto.justificacion ? updateDto.justificacion.trim() : 'Actualización de datos de designación',
+      },
     });
 
     return updated;

@@ -12,6 +12,11 @@ import { PartidasModule } from './partidas/partidas.module';
 import { PresupuestosModule } from './presupuestos/presupuestos.module';
 import { AperturaModule } from './apertura/apertura.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { PedidosModule } from './pedidos/pedidos.module';
+import { RendicionesModule } from './rendiciones/rendiciones.module';
+import { ReposicionesModule } from './reposiciones/reposiciones.module';
+import { ArqueosModule } from './arqueos/arqueos.module';
+import { ReportesModule } from './reportes/reportes.module';
 
 @Module({
   imports: [
@@ -39,7 +44,13 @@ import { DashboardModule } from './dashboard/dashboard.module';
     PresupuestosModule,
     AperturaModule,
     DashboardModule,
+    PedidosModule,
+    RendicionesModule,
+    ReposicionesModule,
+    ArqueosModule,
+    ReportesModule,
   ],
+
   providers: [
     {
       provide: APP_GUARD,

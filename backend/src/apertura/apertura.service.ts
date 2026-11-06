@@ -8,7 +8,7 @@ import {
 import { Prisma, EstadoCajaApertura, TipoMovimientoEfectivo, RolUsuario } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { CreateAperturaDto, UpdateAperturaDto } from './dto/create-apertura.dto';
+import { CreateAperturaDto, UpdateAperturaDto, CorregirAperturaDto } from './dto/create-apertura.dto';
 import { AuthenticatedUser } from '../common/decorators';
 
 @Injectable()
@@ -19,7 +19,13 @@ export class AperturaService {
   ) {}
 
   private checkUnitPermission(unidadId: string, currentUser: AuthenticatedUser) {
-    if (currentUser.rol === RolUsuario.ADMINISTRADOR) return;
+    if (
+      currentUser.rol === RolUsuario.ADMINISTRADOR ||
+      currentUser.rol === RolUsuario.FINANCIERO ||
+      currentUser.rol === RolUsuario.GERENCIA
+    ) {
+      return;
+    }
     if (!currentUser.unidades.includes(unidadId)) {
       throw new ForbiddenException('No tiene permisos para operar en esta unidad.');
     }
@@ -235,6 +241,148 @@ export class AperturaService {
     };
   }
 
+  async corregirApertura(
+    id: string,
+    dto: CorregirAperturaDto,
+    currentUser: AuthenticatedUser,
+  ) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR && currentUser.rol !== RolUsuario.FINANCIERO) {
+      throw new ForbiddenException('Solo el rol ADMINISTRADOR o FINANCIERO puede corregir datos de una apertura.');
+    }
+
+    const apertura = await this.prisma.cajaApertura.findUnique({
+      where: { id },
+      include: {
+        unidad: true,
+        responsable: true,
+      },
+    });
+
+    if (!apertura) {
+      throw new NotFoundException('Registro de apertura no encontrado.');
+    }
+
+    this.checkUnitPermission(apertura.unidadId, currentUser);
+
+    if (apertura.estado === EstadoCajaApertura.CERRADA) {
+      throw new BadRequestException('No se pueden modificar datos de una gestión fiscal ya cerrada.');
+    }
+
+    const data: Prisma.CajaAperturaUpdateInput = {};
+    const cambios: Record<string, { anterior: any; nuevo: any }> = {};
+
+    if (dto.responsableId && dto.responsableId !== apertura.responsableId) {
+      const responsable = await this.prisma.responsable.findUnique({
+        where: { id: dto.responsableId },
+        include: { user: true },
+      });
+      if (!responsable || !responsable.activo || responsable.unidadId !== apertura.unidadId) {
+        throw new BadRequestException('El nuevo responsable seleccionado no pertenece a la unidad o está inactivo.');
+      }
+      if (responsable.user && !responsable.user.activo) {
+        throw new BadRequestException('La cuenta de usuario del nuevo responsable está desactivada.');
+      }
+      data.responsable = { connect: { id: dto.responsableId } };
+      cambios['responsable'] = {
+        anterior: `${apertura.responsable.nombres} ${apertura.responsable.apellidos}`,
+        nuevo: `${responsable.nombres} ${responsable.apellidos}`,
+      };
+    }
+
+    if (dto.fechaApertura) {
+      const nuevaFecha = new Date(dto.fechaApertura);
+      if (nuevaFecha.toISOString().slice(0, 10) !== apertura.fechaApertura.toISOString().slice(0, 10)) {
+        data.fechaApertura = nuevaFecha;
+        cambios['fechaApertura'] = {
+          anterior: apertura.fechaApertura.toISOString().slice(0, 10),
+          nuevo: dto.fechaApertura,
+        };
+      }
+    }
+
+    if (dto.docAutorizacion && dto.docAutorizacion.trim() !== apertura.docAutorizacion) {
+      const trimmed = dto.docAutorizacion.trim();
+      data.docAutorizacion = trimmed;
+      cambios['docAutorizacion'] = {
+        anterior: apertura.docAutorizacion,
+        nuevo: trimmed,
+      };
+    }
+
+    if (dto.compIngreso && dto.compIngreso.trim() !== apertura.compIngreso) {
+      const trimmed = dto.compIngreso.trim();
+      data.compIngreso = trimmed;
+      cambios['compIngreso'] = {
+        anterior: apertura.compIngreso,
+        nuevo: trimmed,
+      };
+    }
+
+    if (Object.keys(cambios).length === 0) {
+      return {
+        message: 'No se detectaron modificaciones en los datos de apertura.',
+        caja: {
+          ...apertura,
+          montoAutorizado: apertura.montoAutorizado.toFixed(2),
+          importeRecibido: apertura.importeRecibido.toFixed(2),
+        },
+      };
+    }
+
+    const resultado = await this.prisma.$transaction(async (tx) => {
+      const cajaActualizada = await tx.cajaApertura.update({
+        where: { id },
+        data,
+        include: {
+          unidad: true,
+          responsable: true,
+          movimientos: true,
+        },
+      });
+
+      // Si cambió el comprobante de ingreso o docAutorizacion, actualizar la descripción del movimiento inicial de apertura
+      if (data.compIngreso || data.docAutorizacion) {
+        await tx.movimientoEfectivo.updateMany({
+          where: {
+            cajaAperturaId: id,
+            tipo: TipoMovimientoEfectivo.APERTURA,
+          },
+          data: {
+            comprobanteReferencia: cajaActualizada.compIngreso,
+            descripcion: `Fondo inicial recibido por apertura de caja chica (Gestión ${cajaActualizada.gestion}). Comprobante: ${cajaActualizada.compIngreso}. Autorización: ${cajaActualizada.docAutorizacion}`,
+          },
+        });
+      }
+
+      await tx.auditoria.create({
+        data: {
+          actorId: currentUser.id,
+          actorUsername: currentUser.username,
+          accion: 'CORREGIR_APERTURA_CONFIRMADA',
+          entidad: 'CajaApertura',
+          entidadId: id,
+          detalleJson: JSON.stringify({
+            unidad: cajaActualizada.unidad.codigo,
+            gestion: cajaActualizada.gestion,
+            justificacion: dto.justificacion.trim(),
+            cambios,
+          }),
+        },
+      });
+
+      return cajaActualizada;
+    });
+
+    return {
+      message: 'Datos de la apertura corregidos exitosamente y registrados en auditoría.',
+      caja: {
+        ...resultado,
+        montoAutorizado: resultado.montoAutorizado.toFixed(2),
+        importeRecibido: resultado.importeRecibido.toFixed(2),
+      },
+    };
+  }
+
   async confirmarApertura(id: string, currentUser: AuthenticatedUser) {
     const aperturaPrevia = await this.prisma.cajaApertura.findUnique({
       where: { id },
@@ -327,5 +475,100 @@ export class AperturaService {
         })),
       },
     };
+  }
+
+  async cerrarCaja(
+    id: string,
+    dto: { compDeposito: string; observaciones?: string },
+    currentUser: AuthenticatedUser,
+  ) {
+    if (currentUser.rol !== RolUsuario.ADMINISTRADOR && currentUser.rol !== RolUsuario.FINANCIERO) {
+      throw new ForbiddenException('Solo el administrador o financiero pueden cerrar la caja chica de una gestión.');
+    }
+
+    const caja = await this.prisma.cajaApertura.findUnique({
+      where: { id },
+      include: {
+        unidad: true,
+        anticipos: {
+          where: { estado: 'PENDIENTE' },
+        },
+        movimientos: true,
+      },
+    });
+
+    if (!caja) {
+      throw new NotFoundException('Apertura no encontrada.');
+    }
+
+    if (caja.estado !== EstadoCajaApertura.ABIERTA) {
+      throw new BadRequestException(`No se puede cerrar una caja que no esté ABIERTA (estado actual: ${caja.estado}).`);
+    }
+
+    if (caja.anticipos.length > 0) {
+      throw new BadRequestException(
+        `Existen ${caja.anticipos.length} anticipo(s) pendiente(s) de rendición. No se puede cerrar la caja hasta que todos los vales estén rendidos.`,
+      );
+    }
+
+    // Calcular saldo remanente de efectivo
+    let saldoEfectivo = new Prisma.Decimal(0);
+    caja.movimientos.forEach((m) => {
+      if (
+        m.tipo === TipoMovimientoEfectivo.APERTURA ||
+        m.tipo === TipoMovimientoEfectivo.REPOSICION ||
+        m.tipo === TipoMovimientoEfectivo.DEVOLUCION_SOBRANTE
+      ) {
+        saldoEfectivo = saldoEfectivo.plus(m.monto);
+      } else {
+        saldoEfectivo = saldoEfectivo.minus(m.monto);
+      }
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      if (saldoEfectivo.gt(0)) {
+        await tx.movimientoEfectivo.create({
+          data: {
+            cajaAperturaId: caja.id,
+            tipo: TipoMovimientoEfectivo.AJUSTE,
+            monto: saldoEfectivo,
+            descripcion: `Devolución y depósito de saldo final por Cierre de Gestión - Comp: ${dto.compDeposito.trim()}`,
+            comprobanteReferencia: dto.compDeposito.trim(),
+            actorId: currentUser.id,
+          },
+        });
+      }
+
+      const cajaCerrada = await tx.cajaApertura.update({
+        where: { id },
+        data: {
+          estado: EstadoCajaApertura.CERRADA,
+        },
+        include: { unidad: true, responsable: true },
+      });
+
+      await this.auditService.log({
+        actorId: currentUser.id,
+        actorUsername: currentUser.username,
+        accion: 'CIERRE_GESTION_CAJA',
+        entidad: 'CajaApertura',
+        entidadId: id,
+        detalle: {
+          unidad: caja.unidad.codigo,
+          gestion: caja.gestion,
+          saldoDevuelto: saldoEfectivo.toFixed(2),
+          compDeposito: dto.compDeposito.trim(),
+        },
+      });
+
+      return {
+        message: 'Caja chica cerrada exitosamente. Gestión concluida.',
+        caja: {
+          ...cajaCerrada,
+          montoAutorizado: cajaCerrada.montoAutorizado.toFixed(2),
+          importeRecibido: cajaCerrada.importeRecibido.toFixed(2),
+        },
+      };
+    });
   }
 }

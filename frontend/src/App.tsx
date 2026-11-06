@@ -7,7 +7,13 @@ import { LoginPage } from './pages/Login/LoginPage';
 import { DashboardPage } from './pages/Dashboard/DashboardPage';
 import { AperturaPage } from './pages/Apertura/AperturaPage';
 import { PresupuestosPage } from './pages/Presupuestos/PresupuestosPage';
+import { PedidosPage } from './pages/Pedidos/PedidosPage';
+import { RendicionesPage } from './pages/Rendiciones/RendicionesPage';
+import { ReposicionesPage } from './pages/Reposiciones/ReposicionesPage';
+import { ArqueosPage } from './pages/Arqueos/ArqueosPage';
+import { ReportesPage } from './pages/Reportes/ReportesPage';
 import { ResponsablesPage } from './pages/Responsables/ResponsablesPage';
+
 import { UnidadesPage } from './pages/Unidades/UnidadesPage';
 import { PartidasPage } from './pages/Partidas/PartidasPage';
 import { UsuariosPage } from './pages/Usuarios/UsuariosPage';
@@ -70,6 +76,13 @@ export const App: React.FC = () => {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage currentGestion={currentGestion} />} />
         <Route path="apertura" element={<AperturaPage currentGestion={currentGestion} />} />
+        <Route path="pedidos" element={<PedidosPage currentGestion={currentGestion} />} />
+        <Route path="rendiciones" element={<RendicionesPage currentGestion={currentGestion} />} />
+        <Route path="presupuestos" element={<PresupuestosPage currentGestion={currentGestion} />} />
+        <Route path="reposiciones" element={<ReposicionesPage currentGestion={currentGestion} />} />
+        <Route path="arqueos" element={<ArqueosPage currentGestion={currentGestion} />} />
+        <Route path="reportes" element={<ReportesPage currentGestion={currentGestion} />} />
+
         <Route
           path="responsables"
           element={
