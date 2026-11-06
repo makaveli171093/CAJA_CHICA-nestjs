@@ -161,6 +161,8 @@ export const AppLayout: React.FC<{
               </ActionIcon>
             </Tooltip>
 
+            <img src="/favicon.png" alt="Logo CPS" style={{ width: 34, height: 34, objectFit: 'contain' }} />
+
             <Box>
               <Text fw={800} size="md" c="#007B6D" style={{ letterSpacing: '0.5px' }}>
                 CAJA PETROLERA DE SALUD

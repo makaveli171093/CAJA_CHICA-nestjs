@@ -14,9 +14,19 @@ async function bootstrap() {
   // Middleware para lectura de cookies de sesión HttpOnly
   app.use(cookieParser());
 
-  // Configuración de CORS segura
+  // Configuración de CORS segura (soporta localhost y red local LAN)
   app.enableCors({
-    origin: [frontendUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        origin === frontendUrl ||
+        /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|cajachica\.local)(:\d+)?$/.test(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -64,7 +74,7 @@ async function bootstrap() {
   }
 
   const port = process.env.PORT || 3000;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`Servidor Backend ejecutándose en: http://localhost:${port}/api`);
 }
 

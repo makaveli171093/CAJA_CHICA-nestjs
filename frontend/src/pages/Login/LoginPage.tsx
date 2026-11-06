@@ -73,9 +73,11 @@ export const LoginPage: React.FC = () => {
       <Container size={420} my={40}>
         <Paper withBorder shadow="md" p={30} radius="md" style={{ backgroundColor: '#ffffff' }}>
           <Stack align="center" gap="xs" mb="lg">
-            <ThemeIcon size={56} radius="xl" color="cpsTeal">
-              <IconLock size={30} />
-            </ThemeIcon>
+            <img
+              src="/favicon.png"
+              alt="Logo CPS"
+              style={{ width: 72, height: 72, objectFit: 'contain' }}
+            />
             <Title order={2} ta="center" c="#007B6D" fw={800} style={{ letterSpacing: '0.5px' }}>
               CAJA PETROLERA DE SALUD
             </Title>
