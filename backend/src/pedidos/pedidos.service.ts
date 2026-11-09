@@ -10,6 +10,7 @@ import {
   Prisma,
   EstadoPedido,
   EstadoAnticipo,
+  EstadoRendicion,
   EstadoCajaApertura,
   TipoMovimientoEfectivo,
   RolUsuario,
@@ -918,10 +919,26 @@ export class PedidosService {
           }
 
           // REGLA INSTITUCIONAL CPS: disponible = asignado - comprometidoPendiente - ejecutado
+          const documentosEjecutados = await tx.documentoDescargo.findMany({
+            where: {
+              partidaId: pedidoPre.partidaId,
+              rendicion: {
+                cajaAperturaId: pedidoPre.cajaAperturaId,
+                estado: EstadoRendicion.APROBADA,
+              },
+            },
+            select: { importe: true },
+          });
+
+          let ejecutadoPartida = new Decimal('0.00');
+          for (const doc of documentosEjecutados) {
+            ejecutadoPartida = ejecutadoPartida.plus(new Decimal(doc.importe.toString()));
+          }
+
           const calculoPresupuesto = calcularDisponibilidadPresupuesto(
             presupuesto.montoAsignado.toString(),
             comprometidoPendiente,
-            0, // En Fase 2A los anticipos no constituyen gasto ejecutado; se incorporará en Fase 2B con Formulario 002
+            ejecutadoPartida,
           );
 
           if (montoPedido.greaterThan(calculoPresupuesto.disponible)) {

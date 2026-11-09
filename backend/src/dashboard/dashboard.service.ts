@@ -6,7 +6,7 @@ import {
 import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/decorators';
-import { RolUsuario, EstadoCajaApertura } from '@prisma/client';
+import { RolUsuario, EstadoCajaApertura, EstadoRendicion } from '@prisma/client';
 import { calcularDisponibilidadPresupuesto } from '../common/utils/presupuesto-calculo';
 
 @Injectable()
@@ -73,7 +73,7 @@ export class DashboardService {
     }
 
     // 3. Obtener presupuestos por partida para la unidad y gestión
-    const [presupuestos, anticipos] = await Promise.all([
+    const [presupuestos, anticipos, documentosAprobados] = await Promise.all([
       this.prisma.presupuestoPartida.findMany({
         where: {
           unidadId,
@@ -99,6 +99,19 @@ export class DashboardService {
           pedido: { select: { partidaId: true } },
         },
       }),
+      this.prisma.documentoDescargo.findMany({
+        where: {
+          rendicion: {
+            unidadId,
+            gestion: Number(gestion),
+            estado: EstadoRendicion.APROBADA,
+          },
+        },
+        select: {
+          partidaId: true,
+          importe: true,
+        },
+      }),
     ]);
 
     const mapaComprometido = new Map<string, Decimal>();
@@ -112,6 +125,17 @@ export class DashboardService {
       mapaComprometido.set(pId, prev.plus(antDec));
     });
 
+    const mapaEjecutado = new Map<string, Decimal>();
+    let totalEjecutadoDecimal = new Decimal('0.00');
+
+    documentosAprobados.forEach((doc) => {
+      const pId = doc.partidaId;
+      const impDec = new Decimal(doc.importe.toString());
+      totalEjecutadoDecimal = totalEjecutadoDecimal.plus(impDec);
+      const prev = mapaEjecutado.get(pId) || new Decimal('0.00');
+      mapaEjecutado.set(pId, prev.plus(impDec));
+    });
+
     let totalPresupuestoDecimal = new Decimal('0.00');
     let totalComprometidoDecimal = new Decimal('0.00');
 
@@ -120,8 +144,10 @@ export class DashboardService {
       totalPresupuestoDecimal = totalPresupuestoDecimal.plus(pDecimal);
       const compromDec = mapaComprometido.get(p.partidaId) || new Decimal('0.00');
       totalComprometidoDecimal = totalComprometidoDecimal.plus(compromDec);
+      const ejecutadoDec = mapaEjecutado.get(p.partidaId) || new Decimal('0.00');
+
       // REGLA CENTRALIZADA CPS: disponible = asignado - comprometido - ejecutado
-      const calculo = calcularDisponibilidadPresupuesto(pDecimal, compromDec, 0);
+      const calculo = calcularDisponibilidadPresupuesto(pDecimal, compromDec, ejecutadoDec);
       const disponibleDec = calculo.disponible;
 
       return {
@@ -131,11 +157,14 @@ export class DashboardService {
         partidaDescripcion: p.partida.descripcion,
         montoAsignado: p.montoAsignado.toFixed(2),
         comprometido: compromDec.toFixed(2),
+        ejecutado: ejecutadoDec.toFixed(2),
         disponible: disponibleDec.toFixed(2),
       };
     });
 
-    const totalDisponiblePresupuestoDecimal = totalPresupuestoDecimal.minus(totalComprometidoDecimal);
+    const totalDisponiblePresupuestoDecimal = totalPresupuestoDecimal
+      .minus(totalComprometidoDecimal)
+      .minus(totalEjecutadoDecimal);
 
     // REGLA INSTITUCIONAL CPS: Límite por operación (10%) calculado sobre el presupuesto total asignado por partidas (POA)
     const baseCalculoLimite = totalPresupuestoDecimal.greaterThan(0)
@@ -187,11 +216,13 @@ export class DashboardService {
       totalAnticiposPendientes: totalAnticiposPendientesDecimal.toFixed(2),
       cantidadAnticiposPendientes: anticipos.length,
       totalComprometido: totalComprometidoDecimal.toFixed(2),
+      totalEjecutado: totalEjecutadoDecimal.toFixed(2),
       totalDisponiblePresupuesto: totalDisponiblePresupuestoDecimal.toFixed(2),
       presupuestoPorPartida,
       resumen: {
         totalPresupuestoAsignado: totalPresupuestoDecimal.toFixed(2),
         totalComprometido: totalComprometidoDecimal.toFixed(2),
+        totalEjecutado: totalEjecutadoDecimal.toFixed(2),
         totalDisponiblePresupuesto: totalDisponiblePresupuestoDecimal.toFixed(2),
         totalAnticiposPendientes: totalAnticiposPendientesDecimal.toFixed(2),
         cantidadAnticiposPendientes: anticipos.length,

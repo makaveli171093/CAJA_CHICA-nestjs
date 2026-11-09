@@ -43,6 +43,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
   const [totalPresupuesto, setTotalPresupuesto] = useState('0.00');
   const [totalPresupuestoDeshabilitado, setTotalPresupuestoDeshabilitado] = useState('0.00');
   const [totalComprometido, setTotalComprometido] = useState('0.00');
+  const [totalEjecutado, setTotalEjecutado] = useState('0.00');
   const [totalDisponible, setTotalDisponible] = useState('0.00');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -74,6 +75,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
       setTotalPresupuesto('0.00');
       setTotalPresupuestoDeshabilitado('0.00');
       setTotalComprometido('0.00');
+      setTotalEjecutado('0.00');
       setTotalDisponible('0.00');
       return;
     }
@@ -91,6 +93,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
           totalPresupuestoHabilitado?: string;
           totalPresupuestoDeshabilitado?: string;
           totalComprometido?: string;
+          totalEjecutado?: string;
           totalDisponible?: string;
         }>(`/presupuestos?unidadId=${activeUnitId}&gestion=${currentGestion}`),
         api.get<{ items: Partida[] }>(
@@ -104,6 +107,7 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
       );
       setTotalPresupuestoDeshabilitado(resPresupuestos.data.totalPresupuestoDeshabilitado || '0.00');
       setTotalComprometido(resPresupuestos.data.totalComprometido || '0.00');
+      setTotalEjecutado(resPresupuestos.data.totalEjecutado || '0.00');
       setTotalDisponible(resPresupuestos.data.totalDisponible || '0.00');
       setPartidasDisponibles(resPartidas.data.items);
     } catch (err: any) {
@@ -336,6 +340,14 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
             </Box>
             <Box>
               <Text size="xs" c="dimmed" fw={700}>
+                GASTO EJECUTADO (RENDICIONES)
+              </Text>
+              <Title order={3} c="#e11d48" mt={4}>
+                Bs. {totalEjecutado}
+              </Title>
+            </Box>
+            <Box>
+              <Text size="xs" c="dimmed" fw={700}>
                 DISPONIBLE PRESUPUESTARIO
               </Text>
               <Title order={3} c="#1e40af" mt={4}>
@@ -376,13 +388,14 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
           <Table striped highlightOnHover withTableBorder>
             <Table.Thead>
               <Table.Tr style={{ backgroundColor: '#f1f5f9' }}>
-                <Table.Th style={{ width: 130 }}>Código Partida</Table.Th>
+                <Table.Th style={{ width: 120 }}>Código Partida</Table.Th>
                 <Table.Th>Descripción Oficial</Table.Th>
-                <Table.Th style={{ width: 140, textAlign: 'center' }}>Estado Catálogo</Table.Th>
-                <Table.Th style={{ width: 160, textAlign: 'right' }}>Asignado (Bs.)</Table.Th>
-                <Table.Th style={{ width: 160, textAlign: 'right' }}>Comprometido (Bs.)</Table.Th>
-                <Table.Th style={{ width: 160, textAlign: 'right' }}>Disponible (Bs.)</Table.Th>
-                <Table.Th style={{ width: 140, textAlign: 'center' }}>Acciones</Table.Th>
+                <Table.Th style={{ width: 130, textAlign: 'center' }}>Estado Catálogo</Table.Th>
+                <Table.Th style={{ width: 140, textAlign: 'right' }}>Asignado (Bs.)</Table.Th>
+                <Table.Th style={{ width: 140, textAlign: 'right' }}>Comprometido (Bs.)</Table.Th>
+                <Table.Th style={{ width: 140, textAlign: 'right' }}>Ejecutado (Bs.)</Table.Th>
+                <Table.Th style={{ width: 140, textAlign: 'right' }}>Disponible (Bs.)</Table.Th>
+                <Table.Th style={{ width: 130, textAlign: 'center' }}>Acciones</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -429,6 +442,15 @@ export const PresupuestosPage: React.FC<{ currentGestion: number }> = ({ current
                     }}
                   >
                     Bs. {item.comprometido || '0.00'}
+                  </Table.Td>
+                  <Table.Td
+                    style={{
+                      textAlign: 'right',
+                      fontWeight: 600,
+                      color: '#e11d48',
+                    }}
+                  >
+                    Bs. {item.ejecutado || '0.00'}
                   </Table.Td>
                   <Table.Td
                     style={{

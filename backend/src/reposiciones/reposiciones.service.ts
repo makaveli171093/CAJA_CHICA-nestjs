@@ -239,14 +239,20 @@ export class ReposicionesService {
    * Aprobación de la Solicitud de Reposición (Solo Financiero / Administrador).
    */
   async aprobar(id: string, dto: AprobarReposicionDto, user: AuthenticatedUser) {
-    if (user.rol !== RolUsuario.FINANCIERO && user.rol !== RolUsuario.ADMINISTRADOR) {
-      throw new ForbiddenException('Solo el personal de la Dirección Administrativa Financiera o el Administrador pueden aprobar reposiciones.');
+    if (
+      user.rol !== RolUsuario.FINANCIERO &&
+      user.rol !== RolUsuario.ADMINISTRADOR &&
+      user.rol !== RolUsuario.ENCARGADO
+    ) {
+      throw new ForbiddenException('No tiene permisos para aprobar reposiciones.');
     }
 
     const reposicion = await this.prisma.reposicion.findUnique({ where: { id } });
     if (!reposicion) {
       throw new NotFoundException('La reposición no existe.');
     }
+
+    this.checkUnitPermission(reposicion.unidadId, user);
 
     if (reposicion.estado !== EstadoReposicion.SOLICITADA) {
       throw new BadRequestException(`No se puede aprobar una reposición con estado ${reposicion.estado}. Solo SOLICITADA.`);
@@ -267,14 +273,20 @@ export class ReposicionesService {
    * Rechazo de la Solicitud de Reposición (desvincula rendiciones para que puedan corregirse o reagruparse).
    */
   async rechazar(id: string, dto: RechazarReposicionDto, user: AuthenticatedUser) {
-    if (user.rol !== RolUsuario.FINANCIERO && user.rol !== RolUsuario.ADMINISTRADOR) {
-      throw new ForbiddenException('Solo el personal Financiero o Administrador pueden rechazar reposiciones.');
+    if (
+      user.rol !== RolUsuario.FINANCIERO &&
+      user.rol !== RolUsuario.ADMINISTRADOR &&
+      user.rol !== RolUsuario.ENCARGADO
+    ) {
+      throw new ForbiddenException('No tiene permisos para rechazar reposiciones.');
     }
 
     const reposicion = await this.prisma.reposicion.findUnique({ where: { id } });
     if (!reposicion) {
       throw new NotFoundException('La reposición no existe.');
     }
+
+    this.checkUnitPermission(reposicion.unidadId, user);
 
     if (reposicion.estado === EstadoReposicion.EFECTUADA) {
       throw new BadRequestException('No se puede rechazar una reposición que ya fue cobrada y efectuada en caja.');
@@ -303,8 +315,12 @@ export class ReposicionesService {
    * Efectuar reposición: ingresa el efectivo del cheque/transferencia institucional en la Caja Chica.
    */
   async efectuar(id: string, dto: EfectuarReposicionDto, user: AuthenticatedUser) {
-    if (user.rol !== RolUsuario.FINANCIERO && user.rol !== RolUsuario.ADMINISTRADOR) {
-      throw new ForbiddenException('Solo el personal Financiero o Administrador pueden confirmar el desembolso y efectivización de la reposición.');
+    if (
+      user.rol !== RolUsuario.FINANCIERO &&
+      user.rol !== RolUsuario.ADMINISTRADOR &&
+      user.rol !== RolUsuario.ENCARGADO
+    ) {
+      throw new ForbiddenException('No tiene permisos para confirmar el desembolso y efectivización de la reposición.');
     }
 
     const reposicion = await this.prisma.reposicion.findUnique({
@@ -315,6 +331,8 @@ export class ReposicionesService {
     if (!reposicion) {
       throw new NotFoundException('La reposición no existe.');
     }
+
+    this.checkUnitPermission(reposicion.unidadId, user);
 
     if (reposicion.estado !== EstadoReposicion.APROBADA) {
       throw new BadRequestException('Solo reposiciones formalmente APROBADAS pueden ser registradas como EFECTUADAS.');

@@ -79,7 +79,7 @@ export const ReposicionesPage: React.FC<{ currentGestion: number }> = ({ current
   const isFinanciero = user?.rol === 'FINANCIERO';
   const isAdmin = user?.rol === 'ADMINISTRADOR';
   const isEncargado = user?.rol === 'ENCARGADO';
-  const canApprove = isFinanciero || isAdmin;
+  const canApprove = isFinanciero || isAdmin || isEncargado;
   const canRequest = isEncargado || isAdmin;
 
   const fetchData = async () => {

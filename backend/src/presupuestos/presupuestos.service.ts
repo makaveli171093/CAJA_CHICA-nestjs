@@ -12,7 +12,7 @@ import { AuditService } from '../audit/audit.service';
 import { CreatePresupuestoDto } from './dto/create-presupuesto.dto';
 import { UpdatePresupuestoDto } from './dto/update-presupuesto.dto';
 import { AuthenticatedUser } from '../common/decorators';
-import { RolUsuario } from '@prisma/client';
+import { RolUsuario, EstadoRendicion } from '@prisma/client';
 import { calcularDisponibilidadPresupuesto } from '../common/utils/presupuesto-calculo';
 
 @Injectable()
@@ -130,7 +130,7 @@ export class PresupuestosService {
   }) {
     this.checkUnitPermission(params.unidadId, params.currentUser);
 
-    const [presupuestos, asignaciones, anticipos] = await Promise.all([
+    const [presupuestos, asignaciones, anticipos, documentosAprobados] = await Promise.all([
       this.prisma.presupuestoPartida.findMany({
         where: {
           unidadId: params.unidadId,
@@ -162,6 +162,19 @@ export class PresupuestosService {
           pedido: { select: { partidaId: true } },
         },
       }),
+      this.prisma.documentoDescargo.findMany({
+        where: {
+          rendicion: {
+            unidadId: params.unidadId,
+            gestion: Number(params.gestion),
+            estado: EstadoRendicion.APROBADA,
+          },
+        },
+        select: {
+          partidaId: true,
+          importe: true,
+        },
+      }),
     ]);
 
     const mapaHabilitadas = new Map<string, boolean>();
@@ -174,21 +187,31 @@ export class PresupuestosService {
       mapaComprometido.set(pId, prev.plus(new Decimal(ant.monto.toString())));
     });
 
+    const mapaEjecutado = new Map<string, Decimal>();
+    documentosAprobados.forEach((doc) => {
+      const pId = doc.partidaId;
+      const prev = mapaEjecutado.get(pId) || new Decimal('0.00');
+      mapaEjecutado.set(pId, prev.plus(new Decimal(doc.importe.toString())));
+    });
+
     let totalHabilitado = new Decimal('0.00');
     let totalDeshabilitado = new Decimal('0.00');
     let totalComprometido = new Decimal('0.00');
+    let totalEjecutado = new Decimal('0.00');
 
     const formatted = presupuestos.map((item) => {
       const habilitado = mapaHabilitadas.get(item.partidaId) || false;
       const itemDecimal = new Decimal(item.montoAsignado.toString());
       const comprometidoPartida = mapaComprometido.get(item.partidaId) || new Decimal('0.00');
+      const ejecutadoPartida = mapaEjecutado.get(item.partidaId) || new Decimal('0.00');
       // REGLA CENTRALIZADA CPS: disponible = asignado - comprometidoPendiente - ejecutado
-      const calculoPres = calcularDisponibilidadPresupuesto(itemDecimal, comprometidoPartida, 0);
+      const calculoPres = calcularDisponibilidadPresupuesto(itemDecimal, comprometidoPartida, ejecutadoPartida);
       const disponiblePartida = calculoPres.disponible;
 
       if (habilitado) {
         totalHabilitado = totalHabilitado.plus(itemDecimal);
         totalComprometido = totalComprometido.plus(comprometidoPartida);
+        totalEjecutado = totalEjecutado.plus(ejecutadoPartida);
       } else {
         totalDeshabilitado = totalDeshabilitado.plus(itemDecimal);
       }
@@ -198,6 +221,7 @@ export class PresupuestosService {
         habilitado,
         montoAsignado: item.montoAsignado.toFixed(2),
         comprometido: comprometidoPartida.toFixed(2),
+        ejecutado: ejecutadoPartida.toFixed(2),
         disponible: disponiblePartida.toFixed(2),
         historial: item.historial.map((h) => ({
           ...h,
@@ -207,7 +231,7 @@ export class PresupuestosService {
       };
     });
 
-    const totalDisponible = totalHabilitado.minus(totalComprometido);
+    const totalDisponible = totalHabilitado.minus(totalComprometido).minus(totalEjecutado);
 
     return {
       items: formatted,
@@ -215,6 +239,7 @@ export class PresupuestosService {
       totalPresupuestoHabilitado: totalHabilitado.toFixed(2),
       totalPresupuestoDeshabilitado: totalDeshabilitado.toFixed(2),
       totalComprometido: totalComprometido.toFixed(2),
+      totalEjecutado: totalEjecutado.toFixed(2),
       totalDisponible: totalDisponible.toFixed(2),
       cantidadPartidas: formatted.length,
       cantidadPartidasHabilitadas: formatted.filter((i) => i.habilitado).length,

@@ -95,6 +95,7 @@ export interface PresupuestoPartida {
   activo: boolean;
   habilitado?: boolean;
   comprometido?: string;
+  ejecutado?: string;
   disponible?: string;
   partida?: Partida;
   unidad?: Unit;
@@ -204,6 +205,7 @@ export interface DashboardData {
   totalAnticiposPendientes?: string;
   cantidadAnticiposPendientes?: number;
   totalComprometido?: string;
+  totalEjecutado?: string;
   totalDisponiblePresupuesto?: string;
   presupuestoPorPartida: Array<{
     id: string;
@@ -212,11 +214,13 @@ export interface DashboardData {
     partidaDescripcion: string;
     montoAsignado: string;
     comprometido?: string;
+    ejecutado?: string;
     disponible?: string;
   }>;
   resumen: {
     totalPresupuestoAsignado: string;
     totalComprometido?: string;
+    totalEjecutado?: string;
     totalDisponiblePresupuesto?: string;
     totalAnticiposPendientes?: string;
     cantidadAnticiposPendientes?: number;

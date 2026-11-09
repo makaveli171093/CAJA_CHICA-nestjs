@@ -71,8 +71,8 @@ export class ReposicionesController {
   }
 
   @Post(':id/aprobar')
-  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO)
-  @ApiOperation({ summary: 'Aprobar solicitud de reposición de fondos (Financiero / Administrador)' })
+  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO, RolUsuario.ENCARGADO)
+  @ApiOperation({ summary: 'Aprobar solicitud de reposición de fondos' })
   aprobar(
     @Param('id') id: string,
     @Body() dto: AprobarReposicionDto,
@@ -82,7 +82,7 @@ export class ReposicionesController {
   }
 
   @Post(':id/rechazar')
-  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO)
+  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO, RolUsuario.ENCARGADO)
   @ApiOperation({ summary: 'Rechazar solicitud de reposición y liberar rendiciones' })
   rechazar(
     @Param('id') id: string,
@@ -93,7 +93,7 @@ export class ReposicionesController {
   }
 
   @Post(':id/efectuar')
-  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO)
+  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO, RolUsuario.ENCARGADO)
   @ApiOperation({ summary: 'Registrar cobro y efectivización de reposición en caja física' })
   efectuar(
     @Param('id') id: string,

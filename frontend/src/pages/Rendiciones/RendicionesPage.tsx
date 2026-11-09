@@ -84,7 +84,7 @@ export const RendicionesPage: React.FC<RendicionesPageProps> = ({ currentGestion
   const isGerencia = user?.rol === 'GERENCIA';
   const isEncargado = user?.rol === 'ENCARGADO';
 
-  const canApprove = isAdmin || isFinanciero;
+  const canApprove = isAdmin || isFinanciero || isEncargado;
   const canCreate = isAdmin || isEncargado;
 
   useEffect(() => {
@@ -528,10 +528,10 @@ export const RendicionesPage: React.FC<RendicionesPageProps> = ({ currentGestion
                             </Tooltip>
                           )}
 
-                          {/* Aprobar / Rechazar (Financiero o Administrador en ENVIADA) */}
-                          {canApprove && r.estado === 'ENVIADA' && (
+                          {/* Aprobar / Rechazar (Encargado, Financiero o Administrador) */}
+                          {canApprove && (r.estado === 'ENVIADA' || r.estado === 'BORRADOR') && (
                             <>
-                              <Tooltip label="Aprobar rendición">
+                              <Tooltip label="Aprobar rendición (Consolidar gasto)">
                                 <ActionIcon
                                   variant="filled"
                                   color="teal"
@@ -542,20 +542,22 @@ export const RendicionesPage: React.FC<RendicionesPageProps> = ({ currentGestion
                                   <IconCheck size={16} />
                                 </ActionIcon>
                               </Tooltip>
-                              <Tooltip label="Rechazar con observaciones">
-                                <ActionIcon
-                                  variant="filled"
-                                  color="red"
-                                  size="sm"
-                                  onClick={() => {
-                                    setRendicionActionId(r.id);
-                                    setModalRechazoOpened(true);
-                                  }}
-                                  loading={actionLoading}
-                                >
-                                  <IconX size={16} />
-                                </ActionIcon>
-                              </Tooltip>
+                              {r.estado === 'ENVIADA' && (
+                                <Tooltip label="Rechazar con observaciones">
+                                  <ActionIcon
+                                    variant="filled"
+                                    color="red"
+                                    size="sm"
+                                    onClick={() => {
+                                      setRendicionActionId(r.id);
+                                      setModalRechazoOpened(true);
+                                    }}
+                                    loading={actionLoading}
+                                  >
+                                    <IconX size={16} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              )}
                             </>
                           )}
                         </Group>

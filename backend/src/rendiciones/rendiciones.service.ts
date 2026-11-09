@@ -268,8 +268,12 @@ export class RendicionesService {
    * Ejecuta la liquidación de cuentas, devolución de sobrante a caja y consolidación de gasto ejecutado.
    */
   async aprobar(id: string, dto: AprobarRendicionDto, user: AuthenticatedUser) {
-    if (user.rol !== RolUsuario.FINANCIERO && user.rol !== RolUsuario.ADMINISTRADOR) {
-      throw new ForbiddenException('Solo el rol FINANCIERO o ADMINISTRADOR puede aprobar rendiciones de cuentas.');
+    if (
+      user.rol !== RolUsuario.FINANCIERO &&
+      user.rol !== RolUsuario.ADMINISTRADOR &&
+      user.rol !== RolUsuario.ENCARGADO
+    ) {
+      throw new ForbiddenException('No tiene permisos para aprobar rendiciones de cuentas.');
     }
 
     const rendicion = await this.prisma.rendicion.findUnique({
@@ -294,6 +298,13 @@ export class RendicionesService {
 
     if (!rendicion) {
       throw new NotFoundException('La rendición de cuentas no existe.');
+    }
+
+    if (user.rol === RolUsuario.ENCARGADO) {
+      const hasAccess = user.unidades && user.unidades.includes(rendicion.unidadId);
+      if (!hasAccess) {
+        throw new ForbiddenException('No tiene permisos para aprobar la rendición de esta unidad.');
+      }
     }
 
     if (rendicion.estado === EstadoRendicion.APROBADA) {
@@ -414,13 +425,24 @@ export class RendicionesService {
    * Rechaza la rendición con observaciones para subsanación.
    */
   async rechazar(id: string, dto: RechazarRendicionDto, user: AuthenticatedUser) {
-    if (user.rol !== RolUsuario.FINANCIERO && user.rol !== RolUsuario.ADMINISTRADOR) {
-      throw new ForbiddenException('Solo el rol FINANCIERO o ADMINISTRADOR puede rechazar rendiciones de cuentas.');
+    if (
+      user.rol !== RolUsuario.FINANCIERO &&
+      user.rol !== RolUsuario.ADMINISTRADOR &&
+      user.rol !== RolUsuario.ENCARGADO
+    ) {
+      throw new ForbiddenException('No tiene permisos para rechazar rendiciones de cuentas.');
     }
 
     const rendicion = await this.prisma.rendicion.findUnique({ where: { id } });
     if (!rendicion) {
       throw new NotFoundException('La rendición no existe.');
+    }
+
+    if (user.rol === RolUsuario.ENCARGADO) {
+      const hasAccess = user.unidades && user.unidades.includes(rendicion.unidadId);
+      if (!hasAccess) {
+        throw new ForbiddenException('No tiene permisos para rechazar la rendición de esta unidad.');
+      }
     }
 
     if (rendicion.estado === EstadoRendicion.APROBADA) {

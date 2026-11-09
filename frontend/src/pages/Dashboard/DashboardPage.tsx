@@ -205,7 +205,7 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
       </Paper>
 
       {/* Tarjetas de Saldos Reales y Compromisos */}
-      <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+      <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4 }} spacing="md">
         {/* 1. Fondo Autorizado (efectivo físico de caja) */}
         <Card shadow="xs" padding="md" radius="md" withBorder>
           <Group justify="space-between">
@@ -301,7 +301,25 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
           </Text>
         </Card>
 
-        {/* 6. Presupuesto Disponible */}
+        {/* 6. Gasto Ejecutado */}
+        <Card shadow="xs" padding="md" radius="md" withBorder>
+          <Group justify="space-between">
+            <Text size="xs" c="dimmed" fw={700}>
+              GASTO EJECUTADO
+            </Text>
+            <ThemeIcon color="pink" variant="light" size={32} radius="md">
+              <IconReceipt2 size={18} />
+            </ThemeIcon>
+          </Group>
+          <Text fw={700} size="xl" mt="xs" c="#e11d48">
+            Bs. {data?.totalEjecutado || data?.resumen?.totalEjecutado || '0.00'}
+          </Text>
+          <Text size="xs" c="dimmed" mt={4}>
+            Consolidado por rendiciones aprobadas
+          </Text>
+        </Card>
+
+        {/* 7. Presupuesto Disponible */}
         <Card shadow="xs" padding="md" radius="md" withBorder>
           <Group justify="space-between">
             <Text size="xs" c="dimmed" fw={700}>
@@ -418,9 +436,10 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
               <Table.Tr style={{ backgroundColor: '#f1f5f9' }}>
                 <Table.Th style={{ width: 140 }}>Código Partida</Table.Th>
                 <Table.Th>Descripción Oficial del Gasto</Table.Th>
-                <Table.Th style={{ width: 150, textAlign: 'right' }}>Presupuesto Asignado</Table.Th>
-                <Table.Th style={{ width: 150, textAlign: 'right' }}>Comprometido</Table.Th>
-                <Table.Th style={{ width: 150, textAlign: 'right' }}>Disponible</Table.Th>
+                <Table.Th style={{ width: 140, textAlign: 'right' }}>Presupuesto Asignado</Table.Th>
+                <Table.Th style={{ width: 130, textAlign: 'right' }}>Comprometido</Table.Th>
+                <Table.Th style={{ width: 130, textAlign: 'right' }}>Ejecutado</Table.Th>
+                <Table.Th style={{ width: 130, textAlign: 'right' }}>Disponible</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -439,6 +458,9 @@ export const DashboardPage: React.FC<{ currentGestion: number }> = ({ currentGes
                   </Table.Td>
                   <Table.Td style={{ textAlign: 'right', fontWeight: 600, color: '#dc2626' }}>
                     Bs. {item.comprometido || '0.00'}
+                  </Table.Td>
+                  <Table.Td style={{ textAlign: 'right', fontWeight: 600, color: '#e11d48' }}>
+                    Bs. {item.ejecutado || '0.00'}
                   </Table.Td>
                   <Table.Td style={{ textAlign: 'right', fontWeight: 700, color: '#007B6D' }}>
                     Bs. {item.disponible || item.montoAsignado}

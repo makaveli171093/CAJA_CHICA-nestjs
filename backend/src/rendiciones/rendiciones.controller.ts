@@ -74,8 +74,8 @@ export class RendicionesController {
   }
 
   @Patch(':id/aprobar')
-  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO)
-  @ApiOperation({ summary: 'Aprobar rendición de cuentas (exclusivo para FINANCIERO o ADMINISTRADOR)' })
+  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO, RolUsuario.ENCARGADO)
+  @ApiOperation({ summary: 'Aprobar rendición de cuentas' })
   aprobar(
     @Param('id') id: string,
     @Body() dto: AprobarRendicionDto,
@@ -85,7 +85,7 @@ export class RendicionesController {
   }
 
   @Patch(':id/rechazar')
-  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO)
+  @Roles(RolUsuario.ADMINISTRADOR, RolUsuario.FINANCIERO, RolUsuario.ENCARGADO)
   @ApiOperation({ summary: 'Rechazar rendición de cuentas con motivo para subsanación' })
   rechazar(
     @Param('id') id: string,
