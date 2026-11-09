@@ -31,6 +31,7 @@ import {
   IconBuilding,
   IconUserPlus,
   IconPlus,
+  IconMinus,
   IconEdit,
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
@@ -580,23 +581,40 @@ export const AperturaPage: React.FC<{ currentGestion: number }> = ({ currentGest
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {apertura.movimientos.map((m) => (
-                <Table.Tr key={m.id}>
-                  <Table.Td style={{ fontSize: '12px' }}>
-                    {formatDateTimeToBO(m.fecha)}
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge color="teal" variant="light">
-                      {m.tipo}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td style={{ fontWeight: 500 }}>{m.descripcion}</Table.Td>
-                  <Table.Td>{m.comprobanteReferencia || '-'}</Table.Td>
-                  <Table.Td style={{ textAlign: 'right', fontWeight: 700, color: '#007B6D' }}>
-                    +Bs. {m.monto}
-                  </Table.Td>
-                </Table.Tr>
-              ))}
+              {apertura.movimientos.map((m) => {
+                const montoNum = parseFloat(m.monto);
+                const isDebito = montoNum < 0 || m.tipo === 'ENTREGA_ANTICIPO' || m.tipo === 'DESCARGO';
+                const montoAbs = Math.abs(montoNum).toFixed(2);
+
+                return (
+                  <Table.Tr key={m.id}>
+                    <Table.Td style={{ fontSize: '12px' }}>
+                      {formatDateTimeToBO(m.fecha)}
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge
+                        color={isDebito ? 'red' : 'teal'}
+                        variant="light"
+                        leftSection={isDebito ? <IconMinus size={11} /> : <IconPlus size={11} />}
+                      >
+                        {m.tipo}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td style={{ fontWeight: 500 }}>{m.descripcion}</Table.Td>
+                    <Table.Td>{m.comprobanteReferencia || '-'}</Table.Td>
+                    <Table.Td style={{ textAlign: 'right', fontWeight: 700 }}>
+                      <Group gap={4} justify="flex-end">
+                        <ThemeIcon size="xs" color={isDebito ? 'red' : 'teal'} variant="light" radius="xl">
+                          {isDebito ? <IconMinus size={10} /> : <IconPlus size={10} />}
+                        </ThemeIcon>
+                        <Text fw={700} c={isDebito ? '#dc2626' : '#007B6D'} size="sm">
+                          {isDebito ? '-' : '+'}Bs. {montoAbs}
+                        </Text>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                );
+              })}
             </Table.Tbody>
           </Table>
         </Paper>
